@@ -1,0 +1,43 @@
+# ========== Python (Backend) ==========
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# ========== Node.js (Frontend) ==========
+node_modules/
+
+# ========== Build output ==========
+dist/
+build/
+
+# ========== Environment variables ==========
+.env
+.env.local
+!.env.example
+
+# ========== IDE / Editor ==========
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ========== OS ==========
+.DS_Store
+Thumbs.db
+
+# ========== Claude Code ==========
+.claude/
+
+# ========== MCP config ==========
+.mcp.json
+
+# ========== bkit ==========
+.bkit/
+
+# ========== Logs ==========
+*.log
+
+# ========== Lock files (uv) ==========
+# uv.lock는 재현성을 위해 커밋 권장 — 제외하지 않음
