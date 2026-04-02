@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/lib/api';
+import api from '@/lib/api';
 import type { Product } from '@/types/product';
 import ProductGrid from '@/components/product/ProductGrid';
 
@@ -7,7 +7,7 @@ export default function WishlistPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['wishlists'],
     queryFn: async () => {
-      const { data } = await apiClient.get<{ id: number; product: Product }[]>('/api/wishlists');
+      const { data } = await api.get<{ id: number; product: Product }[]>('/api/wishlists');
       return data;
     },
   });

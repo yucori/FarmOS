@@ -1,6 +1,6 @@
 import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/lib/api';
+import api from '@/lib/api';
 import type { Store } from '@/types/store';
 import type { ProductListResponse } from '@/types/product';
 import ProductGrid from '@/components/product/ProductGrid';
@@ -10,12 +10,12 @@ export default function StorePage() {
   const { id } = useParams();
   const { data: store } = useQuery({
     queryKey: ['stores', 'detail', id],
-    queryFn: async () => { const { data } = await apiClient.get<Store>(`/api/stores/${id}`); return data; },
+    queryFn: async () => { const { data } = await api.get<Store>(`/api/stores/${id}`); return data; },
     enabled: !!id,
   });
   const { data: products } = useQuery({
     queryKey: ['stores', 'products', id],
-    queryFn: async () => { const { data } = await apiClient.get<ProductListResponse>(`/api/stores/${id}/products`); return data; },
+    queryFn: async () => { const { data } = await api.get<ProductListResponse>(`/api/stores/${id}/products`); return data; },
     enabled: !!id,
   });
 

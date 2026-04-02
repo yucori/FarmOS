@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import apiClient from '@/lib/api';
+import api from '@/lib/api';
 import type { ReviewListResponse } from '@/types/review';
 import StarRating from './StarRating';
 import { formatDate } from '@/lib/utils';
@@ -8,7 +8,7 @@ export default function ReviewList({ productId }: { productId: number }) {
   const { data } = useQuery({
     queryKey: ['reviews', 'product', productId],
     queryFn: async () => {
-      const { data } = await apiClient.get<ReviewListResponse>(`/api/reviews/product/${productId}`);
+      const { data } = await api.get<ReviewListResponse>(`/api/reviews/product/${productId}`);
       return data;
     },
   });

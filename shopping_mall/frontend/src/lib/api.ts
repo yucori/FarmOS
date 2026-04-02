@@ -1,8 +1,11 @@
 import axios from 'axios';
 
-const apiClient = axios.create({
+const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:4000',
-  headers: { 'X-User-Id': '1' },
+  withCredentials: true, // farmos_token 쿠키 자동 전송
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-export default apiClient;
+export default api;
