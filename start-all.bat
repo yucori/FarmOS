@@ -12,10 +12,26 @@ echo   Shop Frontend    : http://localhost:5174
 echo   Backoffice       : http://localhost:5174/admin
 echo.
 
-start "FarmOS-Backend" cmd /k "cd /d E:\new_my_study\himedia_FinalProject\FarmOS\backend && uv run python main.py"
-start "Shop-Backend" cmd /k "cd /d E:\new_my_study\himedia_FinalProject\FarmOS\shopping_mall\backend && uv run python main.py"
-start "FarmOS-Frontend" cmd /k "cd /d E:\new_my_study\himedia_FinalProject\FarmOS\frontend && npm run dev"
-start "Shop-Frontend" cmd /k "cd /d E:\new_my_study\himedia_FinalProject\FarmOS\shopping_mall\frontend && npm run dev"
+@REM 현재 스크립트가 위치한 경로를 작업 디렉토리로 설정
+cd "%~dp0"
 
-echo 모든 서비스가 시작되었습니다.
-pause
+@REM FarmOS 백엔드
+pushd "backend"
+start "farmos_backend" uv run main.py
+popd
+@REM 쇼핑몰 백엔드
+pushd "shopping_mall\backend"
+start "shoppingmall_backend" uv run main.py
+popd
+@REM FarmOS 프론트엔드
+pushd "frontend"
+start "farmos_frontend" cmd /K "npm install && npm run dev"
+popd
+@REM 쇼핑몰 프론트엔드
+pushd "shopping_mall\frontend"
+start "shoppingmall_frontend" cmd /K "npm install && npm run dev"
+popd
+
+echo 모든 서비스가 시작되었습니다. 3초 후 현재 창이 닫힙니다.
+timeout /T 3 /NOBREAK >nul
+
