@@ -43,6 +43,7 @@ export default function JournalPage() {
     updateEntry,
     deleteEntry,
     parseSTT,
+    transcribeAudio,
     fetchDailySummary,
     fetchMissingFields,
   } = useJournalData();
@@ -187,7 +188,12 @@ export default function JournalPage() {
       />
 
       {/* 음성 입력 FAB (항상 렌더링) */}
-      <STTInput ref={sttRef} onParsed={handleSTTParsed} parseSTT={parseSTT} />
+      <STTInput
+        ref={sttRef}
+        onParsed={handleSTTParsed}
+        parseSTT={parseSTT}
+        transcribeAudio={transcribeAudio}
+      />
 
       {/* 폼 모달 (생성/수정 공용) */}
       {(showForm || editingEntry) && (

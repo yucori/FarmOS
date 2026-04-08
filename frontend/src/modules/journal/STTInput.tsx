@@ -9,134 +9,153 @@ import { MdMic, MdStop, MdAutorenew, MdClose } from "react-icons/md";
 import { motion, AnimatePresence } from "framer-motion";
 import type { STTParseResult } from "@/types";
 
-interface SpeechRecognitionEvent {
-  results: {
-    [index: number]: {
-      [index: number]: { transcript: string };
-      isFinal?: boolean;
-    };
-    length: number;
-  };
-  resultIndex: number;
-}
-
 interface Props {
   onParsed: (result: STTParseResult) => void;
   parseSTT: (rawText: string) => Promise<STTParseResult | null>;
+  transcribeAudio: (blob: Blob) => Promise<string | null>;
 }
 
-export type STTStatus = "idle" | "recording" | "processing";
+export type STTStatus = "idle" | "recording" | "transcribing" | "parsing";
 
 export interface STTInputHandle {
   start: () => void;
 }
 
+// MediaRecorder가 지원하는 mimeType 찾기
+function pickMimeType(): string {
+  const candidates = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  for (const c of candidates) {
+    if (
+      typeof MediaRecorder !== "undefined" &&
+      MediaRecorder.isTypeSupported(c)
+    ) {
+      return c;
+    }
+  }
+  return "";
+}
+
 const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
-  { onParsed, parseSTT },
+  { onParsed, parseSTT, transcribeAudio },
   ref,
 ) {
   const [status, setStatus] = useState<STTStatus>("idle");
-  const [transcript, setTranscript] = useState("");
-  const recognitionRef = useRef<ReturnType<typeof createRecognition> | null>(
-    null,
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const cancelledRef = useRef<boolean>(false);
+
+  const cleanupStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    recorderRef.current = null;
+    chunksRef.current = [];
+  }, []);
+
+  const handleBlob = useCallback(
+    async (blob: Blob) => {
+      setStatus("transcribing");
+      const text = await transcribeAudio(blob);
+      if (!text) {
+        setStatus("idle");
+        return;
+      }
+      setStatus("parsing");
+      const result = await parseSTT(text);
+      if (result) onParsed(result);
+      setStatus("idle");
+    },
+    [transcribeAudio, parseSTT, onParsed],
   );
 
-  const startRecording = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
+  const startRecording = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
 
-    const recognition = new SR();
-    recognition.lang = "ko-KR";
-    recognition.continuous = true;
-    recognition.interimResults = true;
+      const mimeType = pickMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
 
-    let finalTranscript = "";
+      chunksRef.current = [];
+      cancelledRef.current = false;
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result[0]) {
-          if (result.isFinal) {
-            finalTranscript += result[0].transcript + " ";
-          } else {
-            interim = result[0].transcript;
-          }
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const wasCancelled = cancelledRef.current;
+        const chunks = chunksRef.current;
+        const type = recorder.mimeType || mimeType || "audio/webm";
+        cleanupStream();
+        if (wasCancelled) {
+          setStatus("idle");
+          return;
         }
-      }
-      setTranscript(finalTranscript + interim);
-    };
+        if (chunks.length === 0) {
+          setStatus("idle");
+          return;
+        }
+        const blob = new Blob(chunks, { type });
+        void handleBlob(blob);
+      };
 
-    recognition.onerror = () => {
+      recorder.start();
+      recorderRef.current = recorder;
+      setStatus("recording");
+    } catch {
+      cleanupStream();
       setStatus("idle");
-      setTranscript("");
-    };
-
-    recognition.onend = () => {
-      const text = finalTranscript.trim();
-      if (text) {
-        handleAnalyze(text);
-      } else {
-        setStatus("idle");
-      }
-    };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setStatus("recording");
-    setTranscript("");
-  }, []);
+    }
+  }, [cleanupStream, handleBlob]);
 
   const stopRecording = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+    const rec = recorderRef.current;
+    if (rec && rec.state !== "inactive") {
+      cancelledRef.current = false;
+      rec.stop();
     }
-    const text = transcript.trim();
-    if (text) {
-      handleAnalyze(text);
-    } else {
-      setStatus("idle");
-    }
-  }, [transcript]);
-
-  const handleAnalyze = useCallback(
-    async (text: string) => {
-      setStatus("processing");
-      const result = await parseSTT(text);
-      if (result) {
-        onParsed(result);
-      }
-      setStatus("idle");
-      setTranscript("");
-    },
-    [parseSTT, onParsed],
-  );
+  }, []);
 
   const handleCancel = useCallback(() => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+    const rec = recorderRef.current;
+    cancelledRef.current = true;
+    if (rec && rec.state !== "inactive") {
+      rec.stop();
+    } else {
+      cleanupStream();
+      setStatus("idle");
     }
-    setStatus("idle");
-    setTranscript("");
-  }, []);
+  }, [cleanupStream]);
 
   useImperativeHandle(ref, () => ({ start: startRecording }), [startRecording]);
 
   const handleFABClick = useCallback(() => {
     if (status === "idle") {
-      startRecording();
+      void startRecording();
     } else if (status === "recording") {
       stopRecording();
     }
   }, [status, startRecording, stopRecording]);
 
   const isSupported =
-    typeof window !== "undefined" &&
-    (window.SpeechRecognition || window.webkitSpeechRecognition);
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices &&
+    typeof MediaRecorder !== "undefined";
 
   if (!isSupported) return null;
+
+  const isBusy = status === "transcribing" || status === "parsing";
 
   return (
     <>
@@ -154,9 +173,9 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
         </button>
       )}
 
-      {/* 녹음 중 / 분석 중 — 오버레이 */}
+      {/* 녹음 중 / 전사 중 / 분석 중 — 오버레이 */}
       <AnimatePresence>
-        {(status === "recording" || status === "processing") && (
+        {(status === "recording" || isBusy) && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -166,21 +185,19 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
             {/* 중앙 문구 */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
               {status === "recording" && (
+                <p className="text-white text-lg font-medium">
+                  녹음 중입니다...
+                </p>
+              )}
+              {status === "transcribing" && (
                 <>
+                  <MdAutorenew className="text-white text-5xl animate-spin" />
                   <p className="text-white text-lg font-medium">
-                    녹음 중입니다...
+                    음성을 텍스트로 변환 중...
                   </p>
-                  {transcript && (
-                    <div className="max-w-[300px] px-4 py-3 bg-white/90 rounded-xl">
-                      <p className="text-xs text-gray-400 mb-1">인식 중</p>
-                      <p className="text-sm text-gray-700 line-clamp-3">
-                        {transcript}
-                      </p>
-                    </div>
-                  )}
                 </>
               )}
-              {status === "processing" && (
+              {status === "parsing" && (
                 <>
                   <MdAutorenew className="text-white text-5xl animate-spin" />
                   <p className="text-white text-lg font-medium">
@@ -190,7 +207,7 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
               )}
             </div>
 
-            {/* 취소 + 정지 버튼 — FAB과 동일한 위치 */}
+            {/* 취소 + 정지 버튼 */}
             {status === "recording" && (
               <div className="fixed bottom-[88px] right-4 lg:bottom-8 lg:right-8 z-50 flex flex-col gap-2 items-end">
                 <button
@@ -223,25 +240,3 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
 });
 
 export default STTInput;
-
-// Web Speech API 타입
-function createRecognition() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  return new SR();
-}
-
-declare global {
-  interface Window {
-    SpeechRecognition: new () => {
-      lang: string;
-      continuous: boolean;
-      interimResults: boolean;
-      onresult: ((event: SpeechRecognitionEvent) => void) | null;
-      onerror: ((event: unknown) => void) | null;
-      onend: (() => void) | null;
-      start: () => void;
-      stop: () => void;
-    };
-    webkitSpeechRecognition: typeof window.SpeechRecognition;
-  }
-}

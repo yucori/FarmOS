@@ -121,6 +121,31 @@ export function useJournalData() {
     }
   }, []);
 
+  const transcribeAudio = useCallback(
+    async (blob: Blob): Promise<string | null> => {
+      try {
+        const form = new FormData();
+        const ext = blob.type.includes("ogg")
+          ? "ogg"
+          : blob.type.includes("mp4")
+            ? "mp4"
+            : "webm";
+        form.append("file", blob, `audio.${ext}`);
+        const res = await fetch(`${API_BASE}/journal/transcribe`, {
+          ...opts,
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) throw new Error("전사 실패");
+        const json: { text: string } = await res.json();
+        return json.text;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
   const parseSTT = useCallback(
     async (rawText: string): Promise<STTParseResult | null> => {
       try {
@@ -184,6 +209,7 @@ export function useJournalData() {
     updateEntry,
     deleteEntry,
     parseSTT,
+    transcribeAudio,
     fetchDailySummary,
     fetchMissingFields,
   };

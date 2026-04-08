@@ -2,13 +2,14 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core import journal_store
 from app.core.journal_parser import parse_stt_text
+from app.core.stt import transcribe_audio
 from app.models.user import User
 from app.schemas.journal import (
     JournalEntryCreate,
@@ -21,6 +22,28 @@ from app.schemas.journal import (
 )
 
 router = APIRouter(prefix="/journal", tags=["journal"])
+
+
+@router.post("/transcribe")
+async def transcribe(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """오디오 파일을 Groq Whisper로 전사하여 텍스트 반환."""
+    try:
+        audio_bytes = await file.read()
+        if not audio_bytes:
+            raise HTTPException(400, "빈 오디오 파일입니다.")
+        text = await transcribe_audio(
+            audio_bytes,
+            filename=file.filename or "audio.webm",
+            content_type=file.content_type or "audio/webm",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"STT 전사 실패: {e}")
+    return {"text": text}
 
 
 @router.post("/parse-stt", response_model=STTParseResponse)
