@@ -45,19 +45,45 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
   ref,
 ) {
   const [status, setStatus] = useState<STTStatus>("idle");
+  const [level, setLevel] = useState<number>(0); // 0~1
+  const [elapsed, setElapsed] = useState<number>(0); // seconds
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const cancelledRef = useRef<boolean>(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
+  const startTsRef = useRef<number>(0);
+
+  const stopMeters = useCallback(() => {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      void audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    analyserRef.current = null;
+    setLevel(0);
+    setElapsed(0);
+  }, []);
 
   const cleanupStream = useCallback(() => {
+    stopMeters();
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
     recorderRef.current = null;
     chunksRef.current = [];
-  }, []);
+  }, [stopMeters]);
 
   const handleBlob = useCallback(
     async (blob: Blob) => {
@@ -113,6 +139,45 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
       recorder.start();
       recorderRef.current = recorder;
       setStatus("recording");
+
+      // 볼륨 레벨 + 경과 시간 미터 시작
+      try {
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext })
+            .webkitAudioContext;
+        const ctx = new AudioCtx();
+        audioCtxRef.current = ctx;
+        const source = ctx.createMediaStreamSource(stream);
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        source.connect(analyser);
+        analyserRef.current = analyser;
+
+        const buf = new Uint8Array(analyser.fftSize);
+        const tick = () => {
+          if (!analyserRef.current) return;
+          analyserRef.current.getByteTimeDomainData(buf);
+          // RMS 계산 (0~1)
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) {
+            const v = (buf[i] - 128) / 128;
+            sum += v * v;
+          }
+          const rms = Math.sqrt(sum / buf.length);
+          setLevel(Math.min(1, rms * 2.5));
+          rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+      } catch {
+        // 메터 실패해도 녹음은 계속
+      }
+
+      startTsRef.current = Date.now();
+      setElapsed(0);
+      timerRef.current = window.setInterval(() => {
+        setElapsed(Math.floor((Date.now() - startTsRef.current) / 1000));
+      }, 250);
     } catch {
       cleanupStream();
       setStatus("idle");
@@ -185,9 +250,26 @@ const STTInput = forwardRef<STTInputHandle, Props>(function STTInput(
             {/* 중앙 문구 */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
               {status === "recording" && (
-                <p className="text-white text-lg font-medium">
-                  녹음 중입니다...
-                </p>
+                <div className="flex flex-col items-center gap-4">
+                  <p className="text-white text-lg font-medium">
+                    녹음 중입니다...
+                  </p>
+                  {/* 경과 시간 */}
+                  <p className="text-white/90 text-3xl font-mono tabular-nums">
+                    {String(Math.floor(elapsed / 60)).padStart(2, "0")}:
+                    {String(elapsed % 60).padStart(2, "0")}
+                  </p>
+                  {/* 볼륨 레벨 바 */}
+                  <div className="w-56 h-3 rounded-full bg-white/20 overflow-hidden">
+                    <div
+                      className="h-full bg-red-400 transition-[width] duration-75"
+                      style={{ width: `${Math.round(level * 100)}%` }}
+                    />
+                  </div>
+                  <p className="text-white/70 text-xs">
+                    말할 때 바가 움직이면 마이크가 정상입니다
+                  </p>
+                </div>
               )}
               {status === "transcribing" && (
                 <>
