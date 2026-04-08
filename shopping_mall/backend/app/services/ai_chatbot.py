@@ -1,5 +1,6 @@
 """AI-powered chatbot service with fallback to rule-based responses."""
 import logging
+from datetime import datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -58,7 +59,8 @@ class ChatbotService:
                 # Set title from first question if not set
                 if not session.title:
                     session.title = question[:50]
-                # Update last message time (auto-updated by onupdate trigger)
+                # Explicitly update timestamp for accurate ordering in list_sessions
+                session.updated_at = datetime.now(timezone.utc)
                 db.add(session)
                 db.commit()
 

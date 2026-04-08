@@ -37,6 +37,13 @@ def seed_faq(client, ef) -> int:
     data = load_json("faq.json")
     if not data:
         return 0
+
+    # Delete existing collection to remove stale embeddings
+    try:
+        client.delete_collection(name="faq")
+    except Exception:
+        pass  # Collection doesn't exist yet, which is fine
+
     col = client.get_or_create_collection(name="faq", embedding_function=ef)
 
     ids, documents, metadatas = [], [], []
@@ -58,6 +65,13 @@ def seed_storage_guide(client, ef) -> int:
     data = load_json("storage_guide.json")
     if not data:
         return 0
+
+    # Delete existing collection to remove stale embeddings
+    try:
+        client.delete_collection(name="storage_guide")
+    except Exception:
+        pass  # Collection doesn't exist yet, which is fine
+
     col = client.get_or_create_collection(name="storage_guide", embedding_function=ef)
 
     ids, documents, metadatas = [], [], []
@@ -78,6 +92,13 @@ def seed_season_info(client, ef) -> int:
     data = load_json("season_info.json")
     if not data:
         return 0
+
+    # Delete existing collection to remove stale embeddings
+    try:
+        client.delete_collection(name="season_info")
+    except Exception:
+        pass  # Collection doesn't exist yet, which is fine
+
     col = client.get_or_create_collection(name="season_info", embedding_function=ef)
 
     ids, documents, metadatas = [], [], []

@@ -58,8 +58,8 @@ export function useCreateSession() {
       queryClient.invalidateQueries({ queryKey: ['chat-sessions', userId] });
       queryClient.invalidateQueries({ queryKey: ['chat-active-session', userId] });
       // Invalidate session messages cache for new session
-      queryClient.invalidateQueries({ queryKey: ['chat-session-messages', newSession.id] });
-      queryClient.invalidateQueries({ queryKey: ['chat-session', newSession.id] });
+      queryClient.invalidateQueries({ queryKey: ['chat-session-messages', userId, newSession.id] });
+      queryClient.invalidateQueries({ queryKey: ['chat-session', userId, newSession.id] });
       // Force immediate refetch
       queryClient.refetchQueries({ queryKey: ['chat-active-session', userId] });
     },
@@ -71,7 +71,7 @@ export function useCreateSession() {
  */
 export function useGetSession(sessionId: number | null, userId: number | null = null) {
   return useQuery({
-    queryKey: ['chat-session', sessionId],
+    queryKey: ['chat-session', userId, sessionId],
     queryFn: async () => {
       // Get all sessions and find the matching one
       const { data } = await api.get('/api/chatbot/sessions', {
@@ -91,14 +91,14 @@ export function useGetSession(sessionId: number | null, userId: number | null = 
  */
 export function useSessionMessages(sessionId: number | null, userId: number | null = null) {
   return useQuery({
-    queryKey: ['chat-session-messages', sessionId],
+    queryKey: ['chat-session-messages', userId, sessionId],
     queryFn: async () => {
       const { data } = await api.get(`/api/chatbot/sessions/${sessionId}/messages`, {
         headers: { 'X-User-Id': userId },
       });
       return data as ChatSessionMessage[];
     },
-    enabled: !!sessionId,
+    enabled: !!sessionId && !!userId,
     staleTime: 1000 * 60 * 5, // 5 minutes - 응답 생성 중 세션 전환했다가 돌아올 때 캐시 사용
     gcTime: 1000 * 60 * 10, // 10 minutes - 캐시 유지 시간
   });
@@ -219,17 +219,17 @@ export function useSendMessage() {
     },
     onMutate: async ({ question, userId, sessionId }) => {
       // Cancel ongoing queries to prevent race conditions
-      await queryClient.cancelQueries({ queryKey: ['chat-session-messages', sessionId] });
+      await queryClient.cancelQueries({ queryKey: ['chat-session-messages', userId, sessionId] });
       await queryClient.cancelQueries({ queryKey: ['chat-sessions', userId] });
 
       // Optimistically update messages cache with user message
-      const previousMessages = queryClient.getQueryData(['chat-session-messages', sessionId]) as ChatSessionMessage[] | undefined;
+      const previousMessages = queryClient.getQueryData(['chat-session-messages', userId, sessionId]) as ChatSessionMessage[] | undefined;
       if (previousMessages) {
         const optimisticMessages = [
           ...previousMessages,
           { role: 'user' as const, text: question }
         ];
-        queryClient.setQueryData(['chat-session-messages', sessionId], optimisticMessages);
+        queryClient.setQueryData(['chat-session-messages', userId, sessionId], optimisticMessages);
       }
 
       // Optimistically update the sessions list with the new question
@@ -247,9 +247,9 @@ export function useSendMessage() {
     },
     onSuccess: (data, { userId, sessionId }, context) => {
       // Update messages cache with bot response
-      const currentMessages = queryClient.getQueryData(['chat-session-messages', sessionId]) as ChatSessionMessage[] | undefined;
+      const currentMessages = queryClient.getQueryData(['chat-session-messages', userId, sessionId]) as ChatSessionMessage[] | undefined;
       if (currentMessages) {
-        queryClient.setQueryData(['chat-session-messages', sessionId], [
+        queryClient.setQueryData(['chat-session-messages', userId, sessionId], [
           ...currentMessages,
           {
             role: 'bot' as const,
@@ -266,7 +266,7 @@ export function useSendMessage() {
     onError: (error, { userId, sessionId }, context) => {
       // Revert to previous data on error
       if (context?.previousMessages) {
-        queryClient.setQueryData(['chat-session-messages', sessionId], context.previousMessages);
+        queryClient.setQueryData(['chat-session-messages', userId, sessionId], context.previousMessages);
       }
       if (context?.previousSessions) {
         queryClient.setQueryData(['chat-sessions', userId], context.previousSessions);

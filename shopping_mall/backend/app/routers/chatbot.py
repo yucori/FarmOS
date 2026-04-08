@@ -1,9 +1,10 @@
 """Chatbot router."""
 from datetime import datetime, timezone
 from typing import List, Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.models.chat_log import ChatLog
@@ -11,6 +12,8 @@ from app.models.chat_session import ChatSession
 from app.schemas.chatlog import ChatQuestion, ChatAnswer, ChatLogResponse, ChatRating
 from app.schemas.chat_session import ChatSessionCreate, ChatSessionResponse, ChatSessionMessages
 from app.services.ai_chatbot import ChatbotService
+from app.farmos_auth import get_farmos_user_optional, FarmOSUser
+from app.models.user import User
 
 router = APIRouter(prefix="/api/chatbot", tags=["chatbot"])
 
@@ -29,14 +32,52 @@ def _get_chatbot_service() -> ChatbotService:
     return _chatbot_service_instance
 
 
-def _get_user_id(x_user_id: int = Header(alias="X-User-Id")) -> int:
-    return x_user_id
+def _get_current_user_id(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> int:
+    """Extract user ID from FarmOS JWT token (authenticated) or X-User-Id header (guest).
+
+    For authenticated users: validates JWT and returns their shop user ID.
+    For guests: returns temporary guest ID from X-User-Id header.
+    Raises 401 if neither is available.
+    """
+    # Try to get authenticated user from JWT token
+    farmos_user = get_farmos_user_optional(request)
+    if farmos_user:
+        # Find or create user in shop database
+        user = db.query(User).filter(User.name == farmos_user.name).first()
+        if not user:
+            user = User(
+                name=farmos_user.name,
+                email=f"{farmos_user.user_id}@farmos.kr",
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user.id
+
+    # Fallback: allow guest with X-User-Id header
+    x_user_id_str = request.headers.get("X-User-Id")
+    if not x_user_id_str:
+        raise HTTPException(
+            status_code=401,
+            detail="인증이 필요합니다 (FarmOS 로그인 또는 X-User-Id 헤더)",
+        )
+
+    try:
+        return int(x_user_id_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="X-User-Id 헤더는 정수여야 합니다",
+        )
 
 
 @router.post("/ask", response_model=ChatAnswer)
 async def ask_question(
     body: ChatQuestion,
-    authenticated_user_id: int = Depends(_get_user_id),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     db: Session = Depends(get_db)
 ):
     """Submit a question to the AI chatbot."""
@@ -47,7 +88,7 @@ async def ask_question(
         result = await service.answer(
             db,
             question=body.question,
-            user_id=body.user_id,
+            user_id=None,
             history=history,
             session_id=None,
         )
@@ -69,7 +110,7 @@ async def ask_question(
     result = await service.answer(
         db,
         question=body.question,
-        user_id=body.user_id,
+        user_id=authenticated_user_id,
         history=history,
         session_id=body.session_id,
     )
@@ -83,7 +124,7 @@ async def ask_question(
 @router.get("/history")
 def get_user_history(
     user_id: int = Query(...),
-    authenticated_user_id: int = Depends(_get_user_id),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     limit: int = Query(20, ge=1, le=50),
     db: Session = Depends(get_db),
 ):
@@ -93,10 +134,12 @@ def get_user_history(
     logs = (
         db.query(ChatLog)
         .filter(ChatLog.user_id == user_id)
-        .order_by(ChatLog.created_at.asc())
+        .order_by(ChatLog.created_at.desc())
         .limit(limit)
         .all()
     )
+    # Reverse to get chronological order (newest first, but each message pair in order)
+    logs = list(reversed(logs))
     messages = []
     for log in logs:
         messages.append({"role": "user", "text": log.question})
@@ -147,7 +190,7 @@ def rate_chat_log(log_id: int, body: ChatRating, db: Session = Depends(get_db)):
 
 
 @router.post("/sessions", response_model=ChatSessionResponse)
-def create_session(body: ChatSessionCreate, authenticated_user_id: int = Depends(_get_user_id), db: Session = Depends(get_db)):
+def create_session(body: ChatSessionCreate, authenticated_user_id: int = Depends(_get_current_user_id), db: Session = Depends(get_db)):
     """Create a new chat session for a user. Only one active session per user allowed."""
     # Validate that user can only create sessions for themselves
     if body.user_id != authenticated_user_id:
@@ -183,6 +226,23 @@ def create_session(body: ChatSessionCreate, authenticated_user_id: int = Depends
         )
         db.add(welcome_log)
         db.commit()
+    except IntegrityError:
+        # Race condition: another request created active session simultaneously
+        # Rollback and fetch the existing active session instead
+        db.rollback()
+        existing_session = (
+            db.query(ChatSession)
+            .filter(ChatSession.user_id == body.user_id, ChatSession.status == "active")
+            .first()
+        )
+        if existing_session:
+            session = existing_session
+        else:
+            # Fallback: shouldn't happen, but retry once more
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to create or retrieve active chat session",
+            )
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create chat session: {str(e)}")
@@ -212,7 +272,7 @@ def create_session(body: ChatSessionCreate, authenticated_user_id: int = Depends
 @router.get("/sessions", response_model=List[ChatSessionResponse])
 def list_sessions(
     user_id: int = Query(...),
-    authenticated_user_id: int = Depends(_get_user_id),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -256,7 +316,7 @@ def list_sessions(
 @router.get("/sessions/active", response_model=Optional[ChatSessionResponse])
 def get_active_session(
     user_id: int = Query(...),
-    authenticated_user_id: int = Depends(_get_user_id),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     db: Session = Depends(get_db),
 ):
     """Get the user's active session if one exists."""
@@ -295,7 +355,7 @@ def get_active_session(
 @router.post("/sessions/{session_id}/close", response_model=ChatSessionResponse)
 def close_session(
     session_id: int,
-    authenticated_user_id: int = Depends(_get_user_id),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     db: Session = Depends(get_db),
 ):
     """Close a chat session."""
@@ -316,7 +376,7 @@ def close_session(
 @router.delete("/sessions/{session_id}")
 def delete_session(
     session_id: int,
-    authenticated_user_id: int = Depends(_get_user_id),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     db: Session = Depends(get_db),
 ):
     """Delete a chat session and all its chat logs."""
@@ -339,7 +399,7 @@ def delete_session(
 @router.get("/sessions/{session_id}/messages", response_model=List[ChatSessionMessages])
 def get_session_messages(
     session_id: int,
-    authenticated_user_id: int = Depends(_get_user_id),
+    authenticated_user_id: int = Depends(_get_current_user_id),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
@@ -354,10 +414,12 @@ def get_session_messages(
     logs = (
         db.query(ChatLog)
         .filter(ChatLog.session_id == session_id)
-        .order_by(ChatLog.created_at.asc())
+        .order_by(ChatLog.created_at.desc())
         .limit(limit)
         .all()
     )
+    # Reverse to get chronological order (newest first, but each message pair in order)
+    logs = list(reversed(logs))
 
     messages = []
     for log in logs:
