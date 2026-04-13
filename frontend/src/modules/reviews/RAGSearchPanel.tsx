@@ -29,7 +29,7 @@ export default function RAGSearchPanel({ onSearch, results, isSearching }: Props
     <div className="card">
       <div className="flex items-center gap-2 mb-4">
         <MdSearch className="text-xl text-primary" />
-        <h3 className="section-title">RAG 의미 검색</h3>
+        <h3 className="section-title">의미 검색</h3>
       </div>
 
       <div className="flex gap-2 mb-3">

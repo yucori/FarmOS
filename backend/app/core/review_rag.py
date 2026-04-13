@@ -52,8 +52,8 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-COLLECTION_NAME = "reviews_llama"
-EMBED_MODEL = "nomic-embed-text"
+COLLECTION_NAME = "reviews_bge_m3"
+EMBED_MODEL = "bge-m3"
 
 
 class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
@@ -77,21 +77,24 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         self.model = model
 
     def __call__(self, input: Documents) -> Embeddings:
-        """텍스트 리스트를 임베딩 벡터 리스트로 변환."""
+        """텍스트 리스트를 임베딩 벡터 리스트로 변환 (배치)."""
+        batch_size = 64
         embeddings = []
-        for text in input:
+        for i in range(0, len(input), batch_size):
+            batch = list(input[i:i + batch_size])
             try:
                 resp = httpx.post(
                     f"{self.base_url}/api/embed",
-                    json={"model": self.model, "input": text},
-                    timeout=60.0,
+                    json={"model": self.model, "input": batch},
+                    timeout=120.0,
                 )
                 resp.raise_for_status()
-                embedding = resp.json()["embeddings"][0]
-                embeddings.append(embedding)
+                batch_embeddings = resp.json()["embeddings"]
+                embeddings.extend(batch_embeddings)
             except Exception as e:
-                logger.error(f"Ollama 임베딩 실패: {e}")
-                embeddings.append([0.0] * 4096)
+                logger.error(f"Ollama 배치 임베딩 실패: {e}")
+                dim = 1024 if "bge" in self.model else 768
+                embeddings.extend([[0.0] * dim for _ in batch])
         return embeddings
 
 
@@ -323,39 +326,107 @@ class ReviewRAG:
         return self.collection.count()
 
     # ------------------------------------------------------------------
-    # Mock 데이터 동기화 (개발용)
+    # DB 동기화 (shop_reviews → ChromaDB)
     # ------------------------------------------------------------------
 
-    def sync_from_mock(self, mock_reviews: list[dict]) -> int:
-        """Mock 데이터를 ChromaDB에 동기화합니다 (개발용).
+    async def sync_from_db(self, db) -> int:
+        """shop_reviews 테이블에서 리뷰를 조회하여 ChromaDB에 동기화합니다.
 
-        학습 포인트:
-            개발 초기에는 실제 DB 대신 Mock 데이터를 사용합니다.
-            이미 저장된 리뷰는 스킵하고 새로운 것만 추가합니다.
-            이렇게 하면 서버를 재시작해도 중복 저장되지 않습니다.
+        Plan Ref: FR-01 (DB 연동)
+        Design Ref: §4.2 (sync_from_db)
 
         Args:
-            mock_reviews: Mock 리뷰 리스트
-                [{ id, text, rating, platform, date }]
+            db: AsyncSession (asyncpg)
 
         Returns:
-            새로 추가된 리뷰 수
+            새로 임베딩된 리뷰 수
         """
-        existing = self.collection.get()
-        existing_ids = set(existing["ids"]) if existing["ids"] else set()
+        from sqlalchemy import text as sa_text
 
-        new_reviews = [
-            r for r in mock_reviews
-            if str(r["id"]) not in existing_ids
-        ]
+        result = await db.execute(
+            sa_text("""
+                SELECT id, product_id, user_id, rating, content, created_at
+                FROM shop_reviews
+                WHERE content IS NOT NULL AND content != ''
+            """)
+        )
+        rows = result.fetchall()
 
-        if not new_reviews:
-            logger.info("모든 Mock 리뷰가 이미 저장되어 있습니다")
+        if not rows:
+            logger.info("shop_reviews에 리뷰가 없습니다")
             return 0
 
-        added = self.embed_reviews(new_reviews)
-        logger.info(f"Mock 리뷰 {added}건 새로 동기화 (기존 {len(existing_ids)}건)")
+        reviews = [
+            {
+                "id": f"review-{row.id}",
+                "text": row.content,
+                "rating": row.rating,
+                "platform": "",
+                "date": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
+                "product_id": row.product_id or 0,
+            }
+            for row in rows
+        ]
+
+        added = self.embed_reviews(reviews)
+        logger.info(f"DB 리뷰 {added}건 새로 동기화 (전체 {len(rows)}건 중)")
         return added
+
+    async def sync_from_db_chunked(self, db, chunk_size: int = 100):
+        """DB 리뷰를 청크 단위로 임베딩하며 진행률을 yield합니다 (SSE용)."""
+        from sqlalchemy import text as sa_text
+
+        result = await db.execute(
+            sa_text("""
+                SELECT id, product_id, user_id, rating, content, created_at
+                FROM shop_reviews
+                WHERE content IS NOT NULL AND content != ''
+            """)
+        )
+        rows = result.fetchall()
+
+        if not rows:
+            yield {"progress": 100, "embedded": 0, "total": 0, "message": "DB에 리뷰가 없습니다."}
+            return
+
+        reviews = [
+            {
+                "id": f"review-{row.id}",
+                "text": row.content,
+                "rating": row.rating,
+                "platform": "",
+                "date": row.created_at.strftime("%Y-%m-%d") if row.created_at else "",
+                "product_id": row.product_id or 0,
+            }
+            for row in rows
+        ]
+
+        for update in self.embed_reviews_chunked(reviews, chunk_size=chunk_size):
+            yield update
+
+    # ------------------------------------------------------------------
+    # 멀티테넌트 조회 (Design §4.2)
+    # ------------------------------------------------------------------
+
+    def get_reviews_by_products(self, product_ids: list[int], top_k: int = 100) -> list[dict]:
+        """특정 상품 ID의 리뷰만 조회합니다 (멀티테넌트).
+
+        Args:
+            product_ids: 필터링할 상품 ID 리스트
+            top_k: 최대 반환 수
+
+        Returns:
+            해당 상품들의 리뷰 리스트
+        """
+        try:
+            results = self.collection.get(
+                where={"product_id": {"$in": product_ids}},
+                limit=top_k,
+            )
+            return self._format_get_results(results)
+        except Exception as e:
+            logger.error(f"상품별 리뷰 조회 실패: {e}")
+            return []
 
     # ------------------------------------------------------------------
     # 내부 헬퍼

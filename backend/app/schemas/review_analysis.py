@@ -74,7 +74,8 @@ class AnalyzeRequest(BaseModel):
     """POST /api/v1/reviews/analyze 요청."""
     scope: str = "all"
     analysis_types: list[str] = ["sentiment", "keywords", "summary"]
-    batch_size: int = Field(default=20, ge=5, le=50)
+    batch_size: int = Field(default=50, ge=5, le=100)
+    sample_size: int = Field(default=200, ge=50, le=10000, description="분석할 리뷰 샘플 수")
 
 
 class SearchRequest(BaseModel):
@@ -94,7 +95,7 @@ class SearchFilters(BaseModel):
 
 class EmbedRequest(BaseModel):
     """POST /api/v1/reviews/embed 요청."""
-    source: str = "mock"  # "mock" | "db"
+    source: str = "db"  # "db" (기본) | "mock" (레거시)
 
 
 class AnalysisSettingsUpdate(BaseModel):

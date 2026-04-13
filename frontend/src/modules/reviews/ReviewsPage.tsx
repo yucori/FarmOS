@@ -11,6 +11,7 @@ const SENTIMENT_COLORS = { positive: '#16A34A', negative: '#DC2626', neutral: '#
 
 export default function ReviewsPage() {
   const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
+  const [selectedSentiment, setSelectedSentiment] = useState<string>('all');
   const [mounted, setMounted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -34,9 +35,11 @@ export default function ReviewsPage() {
     ? summary.suggestions.map((s, i) => ({ id: `sug-${i}`, title: s, description: '', priority: '중간' as const }))
     : AI_STRATEGIES;
 
-  const filteredReviews = selectedPlatform === 'all'
-    ? REVIEWS
-    : REVIEWS.filter(r => r.platform === selectedPlatform);
+  const filteredReviews = REVIEWS.filter(r => {
+    if (selectedPlatform !== 'all' && r.platform !== selectedPlatform) return false;
+    if (selectedSentiment !== 'all' && r.sentiment !== selectedSentiment) return false;
+    return true;
+  });
 
   const avgRating = REVIEWS.length > 0
     ? (REVIEWS.reduce((sum, r) => sum + r.rating, 0) / REVIEWS.length).toFixed(1)
@@ -264,7 +267,7 @@ export default function ReviewsPage() {
       <div className="card">
         <div className="mb-4">
           <h3 className="section-title mb-3">리뷰 목록</h3>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
             {['all', '네이버스마트스토어', '쿠팡'].map(p => (
               <button
                 key={p}
@@ -276,6 +279,16 @@ export default function ReviewsPage() {
                 {p === 'all' ? '전체' : p}
               </button>
             ))}
+            <select
+              value={selectedSentiment}
+              onChange={e => setSelectedSentiment(e.target.value)}
+              className="ml-auto px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 border-none outline-none cursor-pointer hover:bg-gray-200 transition-colors"
+            >
+              <option value="all">감성 전체</option>
+              <option value="positive">긍정</option>
+              <option value="negative">부정</option>
+              <option value="neutral">중립</option>
+            </select>
           </div>
         </div>
         <div className="space-y-2 max-h-[320px] sm:max-h-[400px] overflow-y-auto">

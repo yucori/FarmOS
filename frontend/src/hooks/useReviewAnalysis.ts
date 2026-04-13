@@ -34,7 +34,7 @@ export function useReviewAnalysis() {
     auto_batch_enabled: false,
     batch_trigger_count: 10,
     batch_schedule: null,
-    default_batch_size: 20,
+    default_batch_size: 50,
   });
 
   // 최신 분석 결과 조회 (초기 로드 시 실패해도 에러 표시 안함 — Mock 폴백)
@@ -51,13 +51,13 @@ export function useReviewAnalysis() {
   }, []);
 
   // 분석 실행 (SSE 스트림으로 진행률 표시)
-  const analyzeReviews = useCallback(async (_scope = 'all', batchSize = 20) => {
+  const analyzeReviews = useCallback(async (_scope = 'all', batchSize = 50, sampleSize = 200) => {
     setIsAnalyzing(true);
     setAnalyzeProgress(0);
     setProgressMessage('분석 준비 중...');
     setError(null);
     try {
-      const es = new EventSource(`${API_BASE}/analyze/stream?batch_size=${batchSize}`);
+      const es = new EventSource(`${API_BASE}/analyze/stream?batch_size=${batchSize}&sample_size=${sampleSize}`);
       await new Promise<void>((resolve, reject) => {
         es.onmessage = (event) => {
           const data = JSON.parse(event.data);

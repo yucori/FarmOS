@@ -34,6 +34,7 @@
     print(result["summary"])      # 요약
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -62,7 +63,7 @@ ANALYSIS_PROMPT_TEMPLATE = """다음 {count}개의 농산물 리뷰를 분석하
 다음 JSON 형식으로 정확히 반환하세요 (JSON만 출력, 다른 텍스트 금지):
 {{
   "sentiments": [
-    {{"id": "리뷰ID", "sentiment": "positive 또는 negative 또는 neutral", "score": -1.0에서1.0사이숫자, "reason": "판단근거 한줄"}}
+    {{"id": "리뷰ID", "sentiment": "positive 또는 negative 또는 neutral"}}
   ],
   "keywords": [
     {{"word": "키워드", "count": 출현횟수정수, "sentiment": "positive 또는 negative 또는 neutral"}}
@@ -132,19 +133,23 @@ class ReviewAnalyzer:
         batch_size = batch_size or settings.REVIEW_ANALYSIS_BATCH_SIZE
         start_time = time.time()
 
+        # 배치 분할
+        batches = [reviews[i:i + batch_size] for i in range(0, len(reviews), batch_size)]
+        total_batches = len(batches)
+        logger.info(f"총 {len(reviews)}건 → {total_batches}배치 병렬 분석 시작")
+
+        # 모든 배치를 동시에 LLM 호출 (클라우드 API는 병렬 가능)
+        tasks = [self._analyze_single_batch(batch) for batch in batches]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
         all_sentiments: list[dict] = []
         all_keywords: dict[str, dict] = {}
         batch_summaries: list[dict] = []
 
-        # 배치 단위로 LLM 호출
-        for i in range(0, len(reviews), batch_size):
-            batch = reviews[i:i + batch_size]
-            batch_num = i // batch_size + 1
-            total_batches = (len(reviews) + batch_size - 1) // batch_size
-
-            logger.info(f"배치 {batch_num}/{total_batches} 분석 중 ({len(batch)}건)")
-            result = await self._analyze_single_batch(batch)
-
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"배치 {i+1} 실패: {result}")
+                continue
             if result:
                 all_sentiments.extend(result.get("sentiments", []))
                 self._merge_keywords(all_keywords, result.get("keywords", []))
@@ -180,6 +185,8 @@ class ReviewAnalyzer:
     ):
         """진행률을 yield하며 배치 분석을 수행합니다 (SSE용).
 
+        클라우드 API일 때 모든 배치를 병렬 호출하여 속도를 극대화합니다.
+
         Yields:
             { "progress": 0~100, "batch": int, "total_batches": int, "message": str }
             마지막에 { "progress": 100, "result": {...}, "message": "분석 완료" }
@@ -190,33 +197,36 @@ class ReviewAnalyzer:
 
         batch_size = batch_size or settings.REVIEW_ANALYSIS_BATCH_SIZE
         start_time = time.time()
-        total_batches = (len(reviews) + batch_size - 1) // batch_size
+
+        batches = [reviews[i:i + batch_size] for i in range(0, len(reviews), batch_size)]
+        total_batches = len(batches)
+
+        yield {
+            "progress": 5,
+            "batch": 0,
+            "total_batches": total_batches,
+            "message": f"LLM {total_batches}개 배치 병렬 분석 시작...",
+        }
+
+        # 모든 배치를 동시에 LLM 호출
+        tasks = [self._analyze_single_batch(batch) for batch in batches]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_sentiments: list[dict] = []
         all_keywords: dict[str, dict] = {}
         batch_summaries: list[dict] = []
 
-        for i in range(0, len(reviews), batch_size):
-            batch = reviews[i:i + batch_size]
-            batch_num = i // batch_size + 1
-            progress = int(batch_num / total_batches * 90)  # 90%까지 LLM 분석
-
-            yield {
-                "progress": progress,
-                "batch": batch_num,
-                "total_batches": total_batches,
-                "message": f"LLM 분석 중... 배치 {batch_num}/{total_batches}",
-            }
-
-            result = await self._analyze_single_batch(batch)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"배치 {i+1} 실패: {result}")
+                continue
             if result:
                 all_sentiments.extend(result.get("sentiments", []))
                 self._merge_keywords(all_keywords, result.get("keywords", []))
                 if result.get("summary"):
                     batch_summaries.append(result["summary"])
 
-        # 결과 집계 (90% → 100%)
-        yield {"progress": 95, "batch": total_batches, "total_batches": total_batches, "message": "결과 집계 중..."}
+        yield {"progress": 90, "batch": total_batches, "total_batches": total_batches, "message": "결과 집계 중..."}
 
         sentiment_summary = self._calculate_sentiment_summary(all_sentiments)
         sorted_keywords = sorted(
@@ -285,7 +295,8 @@ class ReviewAnalyzer:
         """
         lines = []
         for r in reviews:
-            stars = "★" * r.get("rating", 0) + "☆" * (5 - r.get("rating", 0))
+            rating = int(r.get("rating", 0))
+            stars = "★" * rating + "☆" * (5 - rating)
             platform = r.get("platform", "")
             lines.append(f'{r["id"]}. "{r["text"]}" ({stars}, {platform})')
         return "\n".join(lines)
@@ -363,6 +374,8 @@ class ReviewAnalyzer:
             → 병합 결과: "당도" 8회
         """
         for kw in new_keywords:
+            if isinstance(kw, str):
+                kw = {"word": kw, "count": 1, "sentiment": "neutral"}
             word = kw.get("word", "").strip()
             if not word:
                 continue

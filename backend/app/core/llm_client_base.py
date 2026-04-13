@@ -104,14 +104,20 @@ class OllamaClient(BaseLLMClient):
         학습 포인트:
             Ollama의 generate API는 단일 프롬프트를 받아 텍스트를 생성합니다.
             stream=False로 설정하면 전체 응답을 한번에 받습니다.
+            temperature=0은 결정적 출력으로 속도가 빠르고 JSON 파싱 안정성이 높습니다.
+            num_predict로 최대 출력 토큰을 제한하여 불필요한 생성을 방지합니다.
         """
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
                 payload = {
                     "model": self.model,
                     "prompt": prompt,
                     "system": system,
                     "stream": False,
+                    "options": {
+                        "temperature": 0,
+                        "num_predict": 4096,
+                    },
                 }
                 resp = await client.post(
                     f"{self.base_url}/api/generate",
