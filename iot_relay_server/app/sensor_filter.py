@@ -49,6 +49,8 @@ def filter_sensors(sensors: dict) -> dict:
             reliability["humidity"] = "suspicious"
     _humidity_history.append(humidity)
 
+    raw_light = light
+
     if light == 0:
         _light_zero_streak += 1
         if _light_zero_streak < 3 and _is_daytime():
@@ -65,7 +67,7 @@ def filter_sensors(sensors: dict) -> dict:
                 reliability["light_intensity"] = "suspicious"
         _last_valid_light = light
 
-    _light_history.append(light)
+    _light_history.append(raw_light)
 
     return {
         "temperature": temp,

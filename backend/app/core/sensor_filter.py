@@ -73,6 +73,8 @@ def filter_sensors(sensors: dict) -> dict:
     _humidity_history.append(humidity)
 
     # --- 조도 필터 (핵심: 불안정 센서 대응) ---
+    raw_light = light  # 히스토리에는 원본 센서값만 기록
+
     if light == 0:
         _light_zero_streak += 1
 
@@ -84,7 +86,7 @@ def filter_sensors(sensors: dict) -> dict:
             # 낮시간에 0이 3회 이상 연속 → 센서 장애 판정
             light = _last_valid_light
             reliability["light_intensity"] = "unreliable"
-        # 야간 + 0 → 정상
+        # 야간 + 0 → 정상 (raw_light=0 그대로 히스토리에 기록)
     else:
         _light_zero_streak = 0
 
@@ -96,7 +98,7 @@ def filter_sensors(sensors: dict) -> dict:
 
         _last_valid_light = light
 
-    _light_history.append(light)
+    _light_history.append(raw_light)
 
     return {
         "temperature": temp,

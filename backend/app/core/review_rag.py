@@ -53,7 +53,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "reviews_llama"
-EMBED_MODEL = "llama3.1:8b"
+EMBED_MODEL = "nomic-embed-text"
 
 
 class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
@@ -140,8 +140,17 @@ class ReviewRAG:
         if not reviews:
             return 0
 
-        ids = [str(r["id"]) for r in reviews]
-        documents = [r["text"] for r in reviews]
+        # 이미 임베딩된 리뷰는 건너뛰기
+        existing = self.collection.get()
+        existing_ids = set(existing["ids"]) if existing["ids"] else set()
+        new_reviews = [r for r in reviews if str(r["id"]) not in existing_ids]
+
+        if not new_reviews:
+            logger.info(f"리뷰 {len(reviews)}건 모두 이미 임베딩됨, 건너뜀")
+            return 0
+
+        ids = [str(r["id"]) for r in new_reviews]
+        documents = [r["text"] for r in new_reviews]
         metadatas = [
             {
                 "product_id": r.get("product_id", 0),
@@ -149,7 +158,7 @@ class ReviewRAG:
                 "platform": r["platform"],
                 "date": r["date"],
             }
-            for r in reviews
+            for r in new_reviews
         ]
 
         try:
@@ -158,8 +167,8 @@ class ReviewRAG:
                 metadatas=metadatas,
                 ids=ids,
             )
-            logger.info(f"리뷰 {len(reviews)}건 임베딩 저장 완료")
-            return len(reviews)
+            logger.info(f"리뷰 {len(new_reviews)}건 임베딩 저장 완료 (기존 {len(existing_ids)}건 건너뜀)")
+            return len(new_reviews)
         except Exception as e:
             logger.error(f"리뷰 임베딩 저장 실패: {e}")
             raise
@@ -180,11 +189,25 @@ class ReviewRAG:
             yield {"progress": 100, "embedded": 0, "total": 0, "message": "임베딩할 리뷰가 없습니다."}
             return
 
-        total = len(reviews)
+        # 이미 임베딩된 리뷰는 건너뛰기
+        existing = self.collection.get()
+        existing_ids = set(existing["ids"]) if existing["ids"] else set()
+        new_reviews = [r for r in reviews if str(r["id"]) not in existing_ids]
+        skipped = len(reviews) - len(new_reviews)
+
+        if not new_reviews:
+            yield {"progress": 100, "embedded": 0, "total": 0,
+                   "message": f"리뷰 {len(reviews)}건 모두 이미 임베딩됨, 건너뜀"}
+            return
+
+        if skipped > 0:
+            logger.info(f"이미 임베딩된 리뷰 {skipped}건 건너뜀")
+
+        total = len(new_reviews)
         embedded = 0
 
         for i in range(0, total, chunk_size):
-            chunk = reviews[i:i + chunk_size]
+            chunk = new_reviews[i:i + chunk_size]
             ids = [str(r["id"]) for r in chunk]
             documents = [r["text"] for r in chunk]
             metadatas = [
@@ -212,44 +235,67 @@ class ReviewRAG:
     # 의미 검색
     # ------------------------------------------------------------------
 
+    # 하이브리드 검색에서 키워드 일치 시 부여할 가산점
+    KEYWORD_BOOST = 0.3
+
     def search(
         self,
         query: str,
         top_k: int = 10,
         filters: dict[str, Any] | None = None,
     ) -> list[dict]:
-        """자연어 질의로 유사 리뷰를 검색합니다.
+        """하이브리드 검색: 벡터 유사도 + 키워드 매칭.
 
         학습 포인트:
-            ChromaDB.query()는 다음 과정을 거칩니다:
-            1. query_texts를 벡터로 변환 (내장 임베딩 모델)
-            2. 저장된 모든 벡터와 코사인 유사도 계산
-            3. 유사도가 높은 순서로 상위 n_results개 반환
+            순수 벡터 검색만으로는 한계가 있습니다:
+            - "당도" 검색 시 → "별로..." 같은 짧은 리뷰가 상위에 올 수 있음
+            - LLM 임베딩은 문맥 유사도를 계산하지, 단어 일치를 보장하지 않음
 
-            where 파라미터로 메타데이터 필터를 추가할 수 있습니다.
-            벡터 유사도 + 메타데이터 필터 = 정밀한 검색
+            하이브리드 검색은 두 가지를 결합합니다:
+            1. 벡터 유사도 (의미적으로 비슷한 리뷰)
+            2. 키워드 부스팅 (검색어가 실제로 포함된 리뷰에 가산점)
+
+            최종 점수 = 벡터 유사도 + (키워드 포함 시 KEYWORD_BOOST)
+
+            이렇게 하면:
+            - "당도" 검색 → "당도 14Brix 이상!" 이 1위로 올라옴
+            - 의미적으로 유사하지만 키워드가 없는 리뷰도 여전히 포함됨
 
         Args:
             query: 검색 질의 (예: "포장 관련 불만")
             top_k: 반환할 최대 결과 수 (기본 10)
             filters: 메타데이터 필터
-                - platform: 플랫폼명 (예: "네이버스마트스토어")
-                - rating_min: 최소 평점 (1~5)
-                - rating_max: 최대 평점 (1~5)
 
         Returns:
-            유사 리뷰 리스트 (유사도 내림차순)
+            유사 리뷰 리스트 (하이브리드 점수 내림차순)
             [{ id, text, similarity, metadata }]
         """
         where_filter = self._build_where_filter(filters)
 
         try:
+            # 벡터 검색 (top_k보다 넓게 가져와서 키워드 부스팅 후 재정렬)
+            fetch_count = min(top_k * 3, 150)
             results = self.collection.query(
                 query_texts=[query],
-                n_results=top_k,
+                n_results=fetch_count,
                 where=where_filter if where_filter else None,
             )
-            return self._format_query_results(results)
+            vector_results = self._format_query_results(results)
+
+            # 키워드 부스팅: 검색어의 각 단어가 리뷰에 포함되면 가산점
+            query_words = query.split()
+            for r in vector_results:
+                boost = 0.0
+                for word in query_words:
+                    if word in r["text"]:
+                        boost = self.KEYWORD_BOOST
+                        break
+                r["similarity"] = round(r["similarity"] + boost, 4)
+
+            # 하이브리드 점수로 재정렬 후 top_k만 반환
+            vector_results.sort(key=lambda x: x["similarity"], reverse=True)
+            return vector_results[:top_k]
+
         except Exception as e:
             logger.error(f"리뷰 검색 실패: {e}")
             return []
@@ -258,7 +304,7 @@ class ReviewRAG:
     # 전체 리뷰 조회
     # ------------------------------------------------------------------
 
-    def get_all_reviews(self, limit: int = 100) -> list[dict]:
+    def get_all_reviews(self) -> list[dict]:
         """저장된 전체 리뷰를 조회합니다 (분석용).
 
         학습 포인트:
@@ -266,7 +312,7 @@ class ReviewRAG:
             전체 리뷰를 LLM에 보내서 배치 분석할 때 사용합니다.
         """
         try:
-            results = self.collection.get(limit=limit)
+            results = self.collection.get()
             return self._format_get_results(results)
         except Exception as e:
             logger.error(f"전체 리뷰 조회 실패: {e}")

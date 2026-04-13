@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     OLLAMA_REMOTE_URL: str = ""  # RunPod 등 원격 Ollama URL
 
     # Review Analysis
-    REVIEW_ANALYSIS_BATCH_SIZE: int = 20
+    REVIEW_ANALYSIS_BATCH_SIZE: int = 40
     REVIEW_ANALYSIS_MAX_RETRIES: int = 2
 
     # AI Agent (IoT 자동 제어)
