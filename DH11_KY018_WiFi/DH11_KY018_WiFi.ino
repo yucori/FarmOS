@@ -70,7 +70,7 @@ void loop() {
 
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    http.setTimeout(10000);
+    http.setTimeout(15000);
     String url = String(Host) + String(apiPath);
     http.begin(wificlient, url);
     http.addHeader("Content-Type", "application/json");

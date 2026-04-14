@@ -103,7 +103,9 @@ async def get_weather(sensor_data: dict | None = None) -> dict:
     if settings.KMA_DECODING_KEY:
         current = await _fetch_kma_ultra_srt_ncst()
         if current:
-            result = {"current": current, "forecasts": [], "source": "kma"}
+            # KMA 실황 API는 예보를 포함하지 않으므로 mock 예보로 보충
+            mock = _generate_mock_weather(sensor_data)
+            result = {"current": current, "forecasts": mock["forecasts"], "source": "kma"}
             _cache = result
             _cache_expiry = now + CACHE_TTL
             return result

@@ -56,8 +56,11 @@ def filter_sensors(sensors: dict) -> dict:
         if _light_zero_streak < 3 and _is_daytime():
             light = _last_valid_light
             reliability["light_intensity"] = "suspicious"
+        elif _is_daytime() and _light_zero_streak < 10:
+            light = _last_valid_light * 0.5  # 장기 0값 시 감쇠
+            reliability["light_intensity"] = "unreliable"
         elif _is_daytime():
-            light = _last_valid_light
+            light = 0.0  # 10회 이상 0이면 실제 0으로 간주
             reliability["light_intensity"] = "unreliable"
     else:
         _light_zero_streak = 0

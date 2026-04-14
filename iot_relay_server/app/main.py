@@ -191,22 +191,45 @@ async def override_control(data: OverrideIn) -> dict:
 
 
 @agent_router.post("/test-trigger")
-async def test_trigger() -> dict:
-    """디버그: 최신 센서값으로 AI Agent를 수동 트리거."""
+async def test_trigger(
+    temperature: float = Query(None),
+    humidity: float = Query(None),
+    light_intensity: float = Query(None),
+    soil_moisture: float = Query(None),
+    force_llm: bool = Query(False),
+) -> dict:
+    """디버그: 센서값으로 AI Agent를 수동 트리거. 파라미터로 가짜 센서값 지정 가능."""
     latest = get_latest()
-    if not latest:
+    if not latest and temperature is None:
         return {"error": "센서 데이터 없음"}
+
     sensors_dict = {
-        "temperature": latest["temperature"],
-        "humidity": latest["humidity"],
-        "light_intensity": latest["lightIntensity"],
-        "soil_moisture": latest["soilMoisture"],
+        "temperature": temperature if temperature is not None else (latest["temperature"] if latest else 25),
+        "humidity": humidity if humidity is not None else (latest["humidity"] if latest else 50),
+        "light_intensity": light_intensity if light_intensity is not None else (latest["lightIntensity"] if latest else 10000),
+        "soil_moisture": soil_moisture if soil_moisture is not None else (latest["soilMoisture"] if latest else 50),
     }
+
+    if force_llm:
+        ai_agent._last_llm_call = None
+        ai_agent._last_sensor_data = None
+
     try:
         decisions = await ai_agent.process_sensor_data(sensors_dict)
-        return {"decisions": decisions, "agent_enabled": ai_agent.agent_enabled}
+        return {
+            "decisions": decisions,
+            "agent_enabled": ai_agent.agent_enabled,
+            "input": sensors_dict,
+            "debug": {
+                "has_api_key": bool(settings.OPENROUTER_API_KEY),
+                "model": settings.AI_AGENT_MODEL,
+                "enabled_phases": ai_agent.ENABLED_PHASES,
+                "last_llm_call": str(ai_agent._last_llm_call) if ai_agent._last_llm_call else None,
+            },
+        }
     except Exception as e:
-        return {"error": str(e), "type": type(e).__name__}
+        import traceback
+        return {"error": str(e), "type": type(e).__name__, "traceback": traceback.format_exc()}
 
 
 # --- Register routers ---

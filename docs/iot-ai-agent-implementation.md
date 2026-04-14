@@ -159,7 +159,7 @@ SOIL_MOISTURE_HIGH=70.0
 
 # AI Agent
 OPENROUTER_API_KEY=          # 넣으면 LLM 판단 활성화
-AI_AGENT_MODEL=openai/gpt-5-nano
+AI_AGENT_MODEL=openai/gpt-5-mini
 AI_AGENT_LLM_INTERVAL=300   # LLM 호출 최소 간격 (초)
 
 # 기상청 API (선택)

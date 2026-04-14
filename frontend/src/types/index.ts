@@ -424,6 +424,12 @@ export interface AIControlState {
   shading: { shade_pct: number; insulation_pct: number };
 }
 
+export interface ToolCallTrace {
+  tool: string;
+  arguments: Record<string, unknown>;
+  result: Record<string, unknown>;
+}
+
 export interface AIDecision {
   id: string;
   timestamp: string;
@@ -431,7 +437,8 @@ export interface AIDecision {
   action: Record<string, unknown>;
   reason: string;
   priority: string;
-  source: "rule" | "llm" | "manual";
+  source: "rule" | "llm" | "manual" | "tool";
+  tool_calls?: ToolCallTrace[];
 }
 
 export interface CropProfile {
