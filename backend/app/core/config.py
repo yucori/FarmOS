@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     REVIEW_ANALYSIS_MAX_RETRIES: int = 2
 
     # AI Agent (IoT 자동 제어)
-    AI_AGENT_MODEL: str = "openai/gpt-5-nano"
+    AI_AGENT_MODEL: str = "openai/gpt-5-mini"
     AI_AGENT_LLM_INTERVAL: int = 300  # LLM 호출 최소 간격 (초)
     AI_AGENT_RULE_INTERVAL: int = 30  # 규칙 판단 간격 (초)
 

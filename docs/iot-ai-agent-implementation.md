@@ -61,7 +61,7 @@ ESP8266 (DHT11 + CdS, 30초 간격)
 | 주간 + 조도 ≥ 30,000 lux | 보광등 OFF | |
 | 조도 ≤ 50,000 lux | 차광막 해제 | |
 
-### 2단계: LLM (GPT-5-nano, 5분 간격)
+### 2단계: LLM (GPT-5-mini, 5분 간격)
 
 - 센서값 5% 이상 변화 시에만 호출
 - 긴급 아닌 미세 조정, 기상 예보 반영, 작물별 양액 배합
@@ -159,7 +159,7 @@ SOIL_MOISTURE_HIGH=70.0
 
 # AI Agent
 OPENROUTER_API_KEY=          # 넣으면 LLM 판단 활성화
-AI_AGENT_MODEL=openai/gpt-5-nano
+AI_AGENT_MODEL=openai/gpt-5-mini
 AI_AGENT_LLM_INTERVAL=300   # LLM 호출 최소 간격 (초)
 
 # 기상청 API (선택)
@@ -190,7 +190,7 @@ FARM_NY=106
 
 | 항목 | 전략 |
 |------|------|
-| 모델 | GPT-5-nano (경량, 저비용) |
+| 모델 | GPT-5-mini (경량, 저비용) |
 | 호출 빈도 | 5분 간격 제한 + 센서값 5% 이상 변화 시에만 |
 | 규칙 우선 | 긴급 상황은 LLM 없이 규칙으로 즉시 처리 |
 | 키 미설정 시 | 규칙만으로 동작 (LLM 비용 0) |

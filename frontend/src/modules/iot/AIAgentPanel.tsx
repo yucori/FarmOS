@@ -31,11 +31,13 @@ function SourceBadge({ source }: { source: string }) {
   const colors: Record<string, string> = {
     rule: 'bg-yellow-100 text-yellow-700',
     llm: 'bg-purple-100 text-purple-700',
+    tool: 'bg-indigo-100 text-indigo-700',
     manual: 'bg-green-100 text-green-700',
   };
   const labels: Record<string, string> = {
     rule: '규칙',
     llm: 'AI',
+    tool: 'AI Tool',
     manual: '수동',
   };
   return (
@@ -69,6 +71,7 @@ function ControlCard({
 }
 
 function DecisionItem({ decision }: { decision: AIDecision }) {
+  const [showTrace, setShowTrace] = useState(false);
   const time = new Date(decision.timestamp).toLocaleTimeString('ko-KR', {
     hour: '2-digit',
     minute: '2-digit',
@@ -80,19 +83,50 @@ function DecisionItem({ decision }: { decision: AIDecision }) {
     shading: '차광/보온',
   };
 
+  const hasTrace = decision.tool_calls && decision.tool_calls.length > 0;
+
   return (
-    <div className="flex items-start gap-3 py-2.5 border-b border-gray-100 last:border-0">
-      <span className="text-xs text-gray-400 mt-0.5 shrink-0 w-12">{time}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium text-gray-800">
-            {typeLabels[decision.control_type] || decision.control_type}
-          </span>
-          <PriorityBadge priority={decision.priority} />
-          <SourceBadge source={decision.source} />
+    <div className="py-2.5 border-b border-gray-100 last:border-0">
+      <div className="flex items-start gap-3">
+        <span className="text-xs text-gray-400 mt-0.5 shrink-0 w-12">{time}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-gray-800">
+              {typeLabels[decision.control_type] || decision.control_type}
+            </span>
+            <PriorityBadge priority={decision.priority} />
+            <SourceBadge source={decision.source} />
+            {hasTrace && (
+              <button
+                onClick={() => setShowTrace(!showTrace)}
+                className="text-xs text-indigo-500 hover:text-indigo-700 underline"
+              >
+                {showTrace ? '추적 닫기' : `도구 호출 ${decision.tool_calls!.length}건`}
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">{decision.reason}</p>
         </div>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{decision.reason}</p>
       </div>
+      {showTrace && decision.tool_calls && (
+        <div className="ml-14 mt-2 space-y-1.5">
+          {decision.tool_calls.map((tc, i) => (
+            <div key={i} className="text-xs bg-gray-50 rounded p-2 font-mono">
+              <span className="text-indigo-600 font-semibold">{tc.tool}</span>
+              {Object.keys(tc.arguments).length > 0 && (
+                <span className="text-gray-500 ml-1">
+                  ({Object.entries(tc.arguments).map(([k, v]) => `${k}: ${v}`).join(', ')})
+                </span>
+              )}
+              {tc.result?.success !== undefined && (
+                <span className={`ml-2 ${tc.result.success ? 'text-green-600' : 'text-red-600'}`}>
+                  {tc.result.success ? 'OK' : 'FAIL'}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
