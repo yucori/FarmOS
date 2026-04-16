@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SensorReading, IrrigationEvent, SensorAlert } from '@/types';
+import type { SensorReading, IrrigationEvent, SensorAlert, ControlEvent } from '@/types';
 
-const API_BASE = 'http://iot.lilpa.moe/api/v1';
+const API_BASE = 'https://iot.lilpa.moe/api/v1';
 const FULL_SYNC_INTERVAL = 60000; // 전체 동기화는 60초마다 (fallback)
 
 interface SensorData {
@@ -10,6 +10,24 @@ interface SensorData {
   alerts: SensorAlert[];
   irrigations: IrrigationEvent[];
   connected: boolean;
+}
+
+// Design Ref: §4.4 — SSE control 이벤트 콜백 지원
+type ControlEventHandler = (event: ControlEvent) => void;
+const _controlHandlers: Set<ControlEventHandler> = new Set();
+
+export function onControlEvent(handler: ControlEventHandler) {
+  _controlHandlers.add(handler);
+  return () => { _controlHandlers.delete(handler); };
+}
+
+// SSE ai_decision 이벤트 콜백
+type AnyEventHandler = (data: unknown) => void;
+const _aiDecisionHandlers: Set<AnyEventHandler> = new Set();
+
+export function onAIDecisionEvent(handler: AnyEventHandler) {
+  _aiDecisionHandlers.add(handler);
+  return () => { _aiDecisionHandlers.delete(handler); };
 }
 
 export function useSensorData() {
@@ -88,6 +106,16 @@ export function useSensorData() {
         ...prev,
         irrigations: [event, ...prev.irrigations],
       }));
+    });
+
+    es.addEventListener('control', (e) => {
+      const controlEvent = JSON.parse(e.data) as ControlEvent;
+      _controlHandlers.forEach(handler => handler(controlEvent));
+    });
+
+    es.addEventListener('ai_decision', (e) => {
+      const decision = JSON.parse(e.data);
+      _aiDecisionHandlers.forEach(handler => handler(decision));
     });
 
     es.onopen = () => {
