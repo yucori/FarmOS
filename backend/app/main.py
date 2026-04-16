@@ -14,12 +14,15 @@ from app.api import (
     pesticide,
     review_analysis,
     sensors,
+    diagnosis,
 )
 from app.core.config import settings
 from app.core.database import async_session, close_db, init_db
 from app.core.security import hash_password
 from app.models.user import User  # noqa: F401 — Base.metadata 등록용
 from app.models.review_analysis import ReviewAnalysis, ReviewSentiment  # noqa: F401
+from app.models.diagnosis import DiagnosisHistory  # noqa: F401
+from app.models.journal import JournalEntry  # noqa: F401
 
 
 async def seed_users():
@@ -69,6 +72,7 @@ async def seed_users():
 async def lifespan(app: FastAPI):
     await init_db()
     await seed_users()
+    
     yield
     await close_db()
 
@@ -92,3 +96,4 @@ app.include_router(knowledge.router, prefix=settings.API_V1_PREFIX)
 app.include_router(pesticide.router, prefix=settings.API_V1_PREFIX)
 app.include_router(market.router, prefix=settings.API_V1_PREFIX)
 app.include_router(review_analysis.router, prefix=settings.API_V1_PREFIX)
+app.include_router(diagnosis.router, prefix=settings.API_V1_PREFIX)
