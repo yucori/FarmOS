@@ -80,6 +80,7 @@ CORE_SUMMARY_TABLES = [
     "review_analyses",
     "review_sentiments",
     "users",
+    "ncpms_diagnoses",
 ]
 POST_PESTICIDE_TABLES = [
     "rag_pesticide_crops",
@@ -89,7 +90,7 @@ POST_PESTICIDE_TABLES = [
     "rag_pesticide_targets",
 ]
 SUMMARY_TABLES = [*CORE_SUMMARY_TABLES, *POST_PESTICIDE_TABLES]
-EXPECTED_ROW_COUNTS = {"users": 2}
+EXPECTED_ROW_COUNTS = {"users": 2, "ncpms_diagnoses": 1}
 POST_PESTICIDE_MIN_ROW_COUNTS = {
     "rag_pesticide_products": 1,
     "rag_pesticide_product_applications": 1,
@@ -131,10 +132,17 @@ async def print_summary() -> None:
 
 
 async def run() -> int:
+    from app.core.config import settings
     info("FarmOS 스키마 생성 시작")
     await init_db()
     await seed_users()
     print()
+    
+    # NCPMS JSON 적재
+    raw_db_url = os.environ.get("DATABASE_URL", str(settings.DATABASE_URL))
+    db_conf = parse_database_url(raw_db_url)
+    await run_ncpms_seed(db_conf)
+    
     await print_summary()
     await close_db()
     print()
@@ -218,6 +226,8 @@ def is_farmos_ready(db_conf: dict[str, str]) -> bool:
     return True
 
 
+from ncpms_seed import run_ncpms_seed
+
 def run_seed_pipeline(raw_db_url: str) -> None:
     info("FarmOS 코어 시드 실행")
     seed_script = ROOT / "bootstrap" / "farmos_seed.py"
@@ -231,7 +241,7 @@ def run_seed_pipeline(raw_db_url: str) -> None:
 def run_pesticide_loader(raw_db_url: str, append_mode: bool = True) -> None:
     info("농약 RAG 테이블 적재 스크립트 실행")
     loader_script = ROOT / "bootstrap" / "pesticide.py"
-    json_dir = ROOT / "tools" / "api-crawler" / "json_raw"
+    json_dir = ROOT / "tools" / "pesticide-api-crawler" / "json_raw"
     command = [
         "--db-url",
         raw_db_url,
