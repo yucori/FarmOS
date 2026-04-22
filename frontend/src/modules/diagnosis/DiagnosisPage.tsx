@@ -265,11 +265,24 @@ export default function DiagnosisPage() {
   }, [isPostcodeOpen]);
 
   const onDrop = useCallback((acceptedFiles: File[], fileRejections: any[]) => {
+    // 1. 기본 MIME 타입 거부 처리 (BMP 등)
     if (fileRejections.length > 0) {
       toast.error('허용되지 않는 파일 형식입니다. JPG, PNG, WebP 이미지만 업로드 가능합니다.');
       return;
     }
+
     if (acceptedFiles.length > 0) {
+      const file = acceptedFiles[0];
+      const fileName = file.name.toLowerCase();
+      // 2. 확장자 직접 대조 (pjp, pjpeg, jfif 등 방어)
+      const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+      const isValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+
+      if (!isValidExtension) {
+        toast.error('허용되지 않는 확장자입니다. (.jpg, .png, .webp만 가능)');
+        return;
+      }
+
       startDiagnosis(false);
     }
   }, [selectedCrop, selectedRegion, testPest]);
