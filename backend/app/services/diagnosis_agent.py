@@ -267,7 +267,14 @@ def _compose_final_response(
 - {normalized_bullets[1]}
 - {normalized_bullets[2]}
 
-## ⚠️ 공지: 제공된 정보는 공공데이터에 기반한 참고용입니다. 농약 사용 전 반드시 제품 라벨의 규정을 확인하십시오."""
+<div class='bg-orange-50 border border-orange-200 rounded-xl p-4 my-4 text-sm text-orange-900'>
+  <div class='font-bold flex items-center gap-2 mb-1'>
+    <span>⚠️</span> 공지사항
+  </div>
+  <div class='leading-relaxed'>
+    제공된 정보는 공공데이터에 기반한 참고용입니다. 농약 사용 전 반드시 <strong>제품 라벨의 규정</strong>을 확인하십시오.
+  </div>
+</div>"""
 
 async def fetch_weather(state: DiagnosisState) -> dict:
     region = state.get("region", "서울") # region fields now acts as full address
@@ -549,9 +556,9 @@ async def fetch_ncpms(state: DiagnosisState) -> dict:
                 prev = (row.prevent_method or "").strip()
                 parts = []
                 if eco:
-                    parts.append(f"### 생태정보\n\n{eco}")
+                    parts.append(f"### {pest} 생태정보\n\n{eco}")
                 if prev:
-                    parts.append(f"### 방제방법\n\n{prev}")
+                    parts.append(f"### {pest} 방제방법\n\n{prev}")
                 md = "\n\n".join(parts) if parts else "데이터 없음"
                 return {"ncpms_data": md}
             return {"ncpms_data": f"NCPMS 정보 조회 결과, '{pest}' 및 '{crop}'에 해당하는 데이터를 DB에서 찾을 수 없습니다."}
@@ -563,56 +570,73 @@ async def fetch_pesticide(state: DiagnosisState) -> dict:
     crop = state.get("crop", "알 수 없음")
     
     try:
+        from app.models.pesticide import PesticideApplication
+        from sqlalchemy.orm import joinedload
+
         async with async_session() as db:
-            query = select(PesticideProduct).where(
+            # RAG 테이블과 원본 매핑 테이블을 조인하여 풀 텍스트 데이터 획득
+            query = select(PesticideProduct).options(
+                joinedload(PesticideProduct.details)
+            ).where(
                 PesticideProduct.target_name.like(f"%{pest}%"),
                 PesticideProduct.crop_name.like(f"%{crop}%")
             ).limit(50)
+            
             result = await db.execute(query)
             products = result.scalars().all()
             
             if products:
-                # 메모.txt 템플릿에 맞는 grouped_results 형태의 JSON 생성
                 grouped = {}
                 for p in products:
                     ing_name = p.ingredient_or_formulation_name or "성분정보없음"
                     if ing_name not in grouped:
-                        if len(grouped) >= 3: # 최대 3개의 성분만 반환
+                        if len(grouped) >= 3:
                             continue
                         grouped[ing_name] = {"ingredient_name": ing_name, "products": []}
                     
-                    # 이미 동일한 상표명/제조사의 농약이 있다면 스킵 (중복 제거)
-                    is_duplicate = False
-                    for existing_prod in grouped[ing_name]["products"]:
-                        if existing_prod["brand_name"] == (p.brand_name or "상표명없음"):
-                            is_duplicate = True
-                            break
-                    if is_duplicate:
+                    is_duplicate = any(ep["brand_name"] == (p.brand_name or "") for ep in grouped[ing_name]["products"])
+                    if is_duplicate or len(grouped[ing_name]["products"]) >= 3:
                         continue
-                        
-                    if len(grouped[ing_name]["products"]) >= 3: # 한 성분당 최대 3개의 제품만
-                        continue
-                        
+                    
+                    method_raw = (p.application_method or "").strip()
+                    timing_raw = (p.application_timing or "").strip()
+                    formulation = (p.formulation_name or "").strip()
+
+                    # 1. 실제 '방법' 유추 (제형 기반)
+                    derived_method = "살포" # 기본값
+                    if "입제" in formulation:
+                        derived_method = "토양혼화 또는 수면전처리"
+                    elif any(f in formulation for f in ["유제", "수화제", "액제", "액상"]):
+                        derived_method = "경엽살포"
+                    
+                    method_display = f"{derived_method} ({formulation})"
+
+                    # 2. '시기' 정보 조립 (발생기 + 안전사용기준)
+                    timing_parts = []
+                    if method_raw and method_raw != "정보없음":
+                        timing_parts.append(method_raw)
+                    
+                    if timing_raw and timing_raw != "정보없음":
+                        # '7' 등 숫자만 있는 경우 보정 로직 유지
+                        safe_timing = f"수확 {timing_raw}일 전까지" if timing_raw.isdigit() else timing_raw
+                        timing_parts.append(f"[{safe_timing}]")
+                    
+                    timing_display = " ".join(timing_parts) if timing_parts else "정보없음"
+
                     grouped[ing_name]["products"].append({
                         "brand_name": p.brand_name or "상표명없음",
                         "corporation_name": p.corporation_name or "제조사없음",
-                        "application_method": p.application_method or "정보없음",
-                        "application_timing": p.application_timing or "정보없음",
-                        "dilution_text": p.dilution_text or "해당 없음 (원액 또는 토양 혼화)",
+                        "application_method": method_display,
+                        "application_timing": timing_display,
+                        "dilution_text": p.dilution_text or "정보없음",
                         "max_use_count_text": p.max_use_count_text or "정보없음"
                     })
                 
                 grouped_list = list(grouped.values())
-                
-                if grouped_list:
-                    import json
-                    return {"pesticide_data": json.dumps(grouped_list, ensure_ascii=False)}
-                else:
-                    return {"pesticide_data": "[]"}
-            else:
-                return {"pesticide_data": "[]"}
+                return {"pesticide_data": json.dumps(grouped_list, ensure_ascii=False)}
+            return {"pesticide_data": "[]"}
     except Exception as e:
-        print(f"Pesticide DB Cache error: {e}")
+        print(f"Pesticide Deep Fetch error: {e}")
         return {"pesticide_data": "[]"}
 
 async def generate_diagnosis(state: DiagnosisState) -> dict:
@@ -709,7 +733,37 @@ async def generate_diagnosis(state: DiagnosisState) -> dict:
                 timing = prod.get("application_timing", "")
                 dilution = prod.get("dilution_text", "")
                 use_cnt = prod.get("max_use_count_text", "")
-                pest_html += f"<div class='bg-white rounded-lg p-3 shadow-none border border-gray-200 flex flex-col h-full'><div class='font-bold text-gray-800 text-sm mb-3 flex items-center flex-wrap gap-2'><span class='text-primary text-[15px]'>{bname}</span><span class='text-[11px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full'>{cname}</span></div><div class='grid grid-cols-2 gap-2 mt-auto'><div class='flex flex-col p-1.5 bg-gray-50/50 rounded'><span class='text-gray-400 mb-0.5 text-[10px]'>사용 방법</span><span class='font-medium text-gray-700 text-xs'>{method}</span></div><div class='flex flex-col p-1.5 bg-gray-50/50 rounded'><span class='text-gray-400 mb-0.5 text-[10px]'>사용 시기</span><span class='font-medium text-gray-700 text-xs'>{timing}</span></div><div class='flex flex-col p-1.5 bg-gray-50/50 rounded'><span class='text-gray-400 mb-0.5 text-[10px]'>희석 배수</span><span class='font-medium text-gray-700 text-xs'>{dilution}</span></div><div class='flex flex-col p-1.5 bg-gray-50/50 rounded'><span class='text-gray-400 mb-0.5 text-[10px]'>사용 횟수</span><span class='font-medium text-gray-700 text-xs'>{use_cnt}</span></div></div></div>"
+
+                # 사용 방법과 사용 시기가 동일한 경우, 중복 노출을 피하기 위해 처리
+                display_timing = timing
+                if method == timing:
+                    # 데이터가 동일하면 '정보 확인 필요' 또는 그대로 두되, 향후 DB 클렌징이 필요함을 시사
+                    pass
+
+                pest_html += f"""<div class='bg-white rounded-lg p-3 shadow-none border border-gray-200 flex flex-col h-full'>
+                    <div class='font-bold text-gray-800 text-sm mb-3 flex items-center flex-wrap gap-2'>
+                        <span class='text-primary text-[15px]'>{bname}</span>
+                        <span class='text-[11px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full'>{cname}</span>
+                    </div>
+                    <div class='grid grid-cols-2 gap-2 mt-auto'>
+                        <div class='flex flex-col p-1.5 bg-gray-50/50 rounded'>
+                            <span class='text-gray-400 mb-0.5 text-[10px]'>사용 방법</span>
+                            <span class='font-medium text-gray-700 text-[11px] line-clamp-2' title='{method}'>{method}</span>
+                        </div>
+                        <div class='flex flex-col p-1.5 bg-gray-50/50 rounded'>
+                            <span class='text-gray-400 mb-0.5 text-[10px]'>사용 시기</span>
+                            <span class='font-medium text-gray-700 text-[11px] line-clamp-2' title='{display_timing}'>{display_timing}</span>
+                        </div>
+                        <div class='flex flex-col p-1.5 bg-gray-50/50 rounded'>
+                            <span class='text-gray-400 mb-0.5 text-[10px]'>희석 배수</span>
+                            <span class='font-medium text-gray-700 text-[11px]'>{dilution}</span>
+                        </div>
+                        <div class='flex flex-col p-1.5 bg-gray-50/50 rounded'>
+                            <span class='text-gray-400 mb-0.5 text-[10px]'>사용 횟수</span>
+                            <span class='font-medium text-gray-700 text-[11px]'>{use_cnt}</span>
+                        </div>
+                    </div>
+                </div>"""
             pest_html += "</div></div>"
         if not pest_html:
             pest_html = "권장 농약 정보가 없습니다."
