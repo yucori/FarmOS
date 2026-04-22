@@ -66,21 +66,35 @@ async def create_diagnosis_history(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """진단 결과 저장."""
+    """진단 결과 저장 (정상 상태 패스트트랙 포함)."""
     pest = payload.pest
     crop = payload.crop
     region = payload.region
     final_result: dict | None = None
 
-    try:
-        async for node_name, state_data in run_diagnosis(pest, crop, region):
-            if node_name == "generate_diagnosis":
-                analysis_result = state_data.get("analysis_result")
-                if isinstance(analysis_result, dict):
-                    final_result = analysis_result
-    except Exception as e:
-        logger.exception("진단 워크플로우 실행 실패")
-        raise HTTPException(status_code=500, detail="진단 결과 생성에 실패했습니다.") from e
+    # 💡 정상 상태인 경우 AI 워크플로우를 타지 않고 즉시 반환 (비용 및 시간 절감)
+    if pest == "정상":
+        final_result = {
+            "result_text": (
+                "🔍 분석 결과, 병해충이 감지되지 않은 **정상** 상태입니다.\n\n"
+                "현재 작물에서 특별한 이상 징후가 발견되지 않았습니다. 매우 건강한 상태입니다! "
+                "앞으로도 정기적인 예찰을 통해 현재의 건강한 상태를 잘 유지하시기 바랍니다.\n\n"
+                "**🌿 관리 조언:**\n"
+                "- 주기적인 예찰을 통해 해충의 초기 유입을 예방하세요.\n"
+                "- 적절한 시비와 관수를 통해 작물의 기본 면역력을 높여주세요.\n"
+                "- 농장 주변 잡초 정리 등 청결한 재배 환경을 유지하는 것이 중요합니다."
+            )
+        }
+    else:
+        try:
+            async for node_name, state_data in run_diagnosis(pest, crop, region):
+                if node_name == "generate_diagnosis":
+                    analysis_result = state_data.get("analysis_result")
+                    if isinstance(analysis_result, dict):
+                        final_result = analysis_result
+        except Exception as e:
+            logger.exception("진단 워크플로우 실행 실패")
+            raise HTTPException(status_code=500, detail="진단 결과 생성에 실패했습니다.") from e
 
     if not final_result or not final_result.get("result_text"):
         raise HTTPException(status_code=500, detail="진단 결과 생성에 실패했습니다.")
