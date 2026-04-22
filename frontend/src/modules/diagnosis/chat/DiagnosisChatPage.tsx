@@ -354,9 +354,15 @@ export default function DiagnosisChatPage() {
                     <div className={`p-4 rounded-2xl shadow-sm border ${
                       msg.role === 'user' 
                         ? 'bg-primary text-white border-primary rounded-tr-none' 
-                        : 'bg-white text-gray-700 border-gray-100 rounded-tl-none whitespace-pre-wrap'
+                        : 'bg-white text-gray-700 border-gray-100 rounded-tl-none'
                     }`}>
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
+                      {msg.role === 'assistant' ? (
+                        <div className="prose prose-sm max-w-none prose-p:my-0.5 prose-ul:my-1 prose-li:my-0.5">
+                          <MarkdownRenderer content={msg.content} />
+                        </div>
+                      ) : (
+                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                      )}
                     </div>
                   )}
                 </div>
