@@ -264,13 +264,23 @@ export default function DiagnosisPage() {
     return () => window.removeEventListener('keydown', handleEsc);
   }, [isPostcodeOpen]);
 
-  const onDrop = useCallback(() => {
-    startDiagnosis(false);
+  const onDrop = useCallback((acceptedFiles: File[], fileRejections: any[]) => {
+    if (fileRejections.length > 0) {
+      toast.error('허용되지 않는 파일 형식입니다. JPG, PNG, WebP 이미지만 업로드 가능합니다.');
+      return;
+    }
+    if (acceptedFiles.length > 0) {
+      startDiagnosis(false);
+    }
   }, [selectedCrop, selectedRegion, testPest]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'image/*': ['.jpg', '.jpeg', '.png', '.webp'] },
+    accept: { 
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp']
+    },
     maxFiles: 1,
   });
 
