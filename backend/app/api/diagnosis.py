@@ -207,9 +207,9 @@ async def add_chat_message(
                     http_async_client=custom_async_client,
                     model_kwargs={
                         "extra_body": {
-                            "include_reasoning": False,
                             "reasoning": {
-                                "effort": "none"
+                                "effort": "minimal",
+                                "exclude": True
                             }
                         }
                     }

@@ -644,9 +644,9 @@ async def generate_diagnosis(state: DiagnosisState) -> dict:
         http_async_client=custom_async_client,
         model_kwargs={
             "extra_body": {
-                "include_reasoning": False,
                 "reasoning": {
-                    "effort": "none"
+                    "effort": "minimal",
+                    "exclude": True
                 }
             }
         }
