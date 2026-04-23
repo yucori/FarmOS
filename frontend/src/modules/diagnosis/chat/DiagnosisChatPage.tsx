@@ -36,17 +36,104 @@ function MarkdownRenderer({ content }: { content: string }) {
     let inList = false;
     let inNestedList = false;
     let nestedLevel = 0; // 0: none, 1: '  -', 2: '    -'
+    
+    // 테이블 관련 상태
+    let inTable = false;
+    let tableRows: string[][] = [];
+
+    // 인용문(Blockquote) 관련 상태
+    let inBlockquote = false;
+    let blockquoteLines: string[] = [];
+
+    const flushBlockquote = () => {
+      if (!inBlockquote) return;
+      result.push('<blockquote class="my-4 p-4 bg-gray-50 border-l-4 border-gray-300 rounded-r-xl italic text-gray-600 space-y-1">');
+      blockquoteLines.forEach(l => {
+        // 인용문 내부의 리스트 기호 처리
+        const content = l.replace(/^-\s+/, '• ').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        result.push(`<p>${content}</p>`);
+      });
+      result.push('</blockquote>');
+      inBlockquote = false;
+      blockquoteLines = [];
+    };
+
+    const flushTable = () => {
+      if (!inTable) return;
+      if (tableRows.length < 2) {
+        // 테이블 형식이 아님 (헤더만 있거나 구분선이 없는 경우 등)
+        tableRows.forEach(row => result.push(`<p class="my-2">${row.join(' | ')}</p>`));
+      } else {
+        result.push('<div class="my-4 overflow-x-auto rounded-xl border border-gray-200 shadow-sm">');
+        result.push('<table class="min-w-full divide-y divide-gray-200 text-xs">');
+        
+        tableRows.forEach((row, idx) => {
+          // 구분선 행 (---) 확인
+          const isSeparator = idx === 1 && row.every(cell => /^[ \-:]+$/.test(cell));
+          if (isSeparator) return;
+          
+          if (idx === 0) {
+            result.push('<thead class="bg-gray-50"><tr>');
+            row.forEach(cell => {
+              const formatted = cell.trim().replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+              result.push(`<th class="px-4 py-3 text-left font-bold text-gray-700 uppercase tracking-wider border-b border-gray-200">${formatted}</th>`);
+            });
+            result.push('</tr></thead><tbody class="bg-white divide-y divide-gray-100">');
+          } else {
+            result.push('<tr class="hover:bg-gray-50/50 transition-colors">');
+            row.forEach(cell => {
+              const formatted = cell.trim().replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+              result.push(`<td class="px-4 py-2.5 text-gray-600 whitespace-nowrap">${formatted}</td>`);
+            });
+            result.push('</tr>');
+          }
+        });
+        
+        result.push('</tbody></table></div>');
+      }
+      inTable = false;
+      tableRows = [];
+    };
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const nextLine = lines[i + 1] || '';
+
+      // 테이블 감지: | 로 시작하거나 포함된 줄
+      const isTableLine = line.trim().startsWith('|') && line.trim().endsWith('|');
+      
+      if (isTableLine) {
+        if (inBlockquote) flushBlockquote(); // 인용문 도중 테이블 방지
+        while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
+        if (inList) { result.push('</ul>'); inList = false; }
+        
+        inTable = true;
+        const cells = line.trim().split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+        tableRows.push(cells);
+        continue;
+      } else if (inTable) {
+        flushTable();
+      }
+
+      // 인용문 감지: > 로 시작하는 줄
+      if (line.trim().startsWith('>')) {
+        while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
+        if (inList) { result.push('</ul>'); inList = false; }
+        
+        inBlockquote = true;
+        const content = line.trim().replace(/^>\s*/, '');
+        blockquoteLines.push(content);
+        continue;
+      } else if (inBlockquote) {
+        flushBlockquote();
+      }
 
       // H2: ## text (공지 포함)
       if (line.startsWith('## ')) {
         while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
         if (inList) { result.push('</ul>'); inList = false; }
         const content = line.replace(/^##\s+/, '').trim();
-        result.push(`<h2 class="text-lg font-bold text-gray-800 mt-4 mb-2">${content}</h2>`);
+        result.push(`<h2 class="text-lg font-bold text-gray-800 mt-6 mb-3">${content}</h2>`);
         continue;
       }
 
@@ -55,7 +142,7 @@ function MarkdownRenderer({ content }: { content: string }) {
         while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
         if (inList) { result.push('</ul>'); inList = false; }
         const content = line.replace(/^###\s+/, '').trim();
-        result.push(`<h3 class="text-base font-semibold text-gray-700 mt-3 mb-1">${content}</h3>`);
+        result.push(`<h3 class="text-base font-semibold text-gray-700 mt-4 mb-2">${content}</h3>`);
         continue;
       }
 
@@ -67,7 +154,6 @@ function MarkdownRenderer({ content }: { content: string }) {
         
         const content = line.replace(/^\s{4,}-\s+/, '').trim();
         const formatted = content.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-        // 텍스트와 점 모두 진한 검은색
         result.push(`<li class="text-gray-800 text-sm pl-4 relative before:content-[''] before:absolute before:-left-1 before:top-2 before:w-1 before:h-1 before:bg-gray-800 before:rounded-sm">${formatted}</li>`);
 
         if (!/^\s{4,}-\s+.+/.test(nextLine)) {
@@ -85,7 +171,6 @@ function MarkdownRenderer({ content }: { content: string }) {
         
         const content = line.replace(/^\s{2,3}-\s+/, '').trim();
         const formatted = content.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-        // 텍스트와 속이 빈 원 테두리 모두 진한 검은색
         result.push(`<li class="text-gray-800 font-medium pl-3 mt-2 relative before:content-[''] before:absolute before:left-0 before:top-2 before:w-1.5 before:h-1.5 before:border before:border-gray-800 before:rounded-full before:bg-transparent">${formatted}</li>`);
 
         if (!/^\s{2,}-\s+.+/.test(nextLine)) {
@@ -102,7 +187,6 @@ function MarkdownRenderer({ content }: { content: string }) {
         
         const content = line.replace(/^-\s+/, '').trim();
         const formatted = content.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-        // 최상위 리스트 아이템은 검정색(어두운 회색) 꽉 찬 원
         result.push(`<li class="text-gray-800 mt-2 relative before:content-[''] before:absolute before:-left-3 before:top-2 before:w-1.5 before:h-1.5 before:bg-gray-800 before:rounded-full">${formatted}</li>`);
 
         if (!/^\s*-\s+.+/.test(nextLine)) {
@@ -128,13 +212,14 @@ function MarkdownRenderer({ content }: { content: string }) {
         const formatted = line.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
         result.push(`<p class="my-2">${formatted}</p>`);
       } else if (i > 0 && lines[i - 1].trim()) {
-        // 연속된 공백 줄은 무시
         if (lines[i-1].trim() !== '') {
           result.push('<br/>');
         }
       }
     }
 
+    if (inTable) flushTable();
+    if (inBlockquote) flushBlockquote();
     while (nestedLevel > 0) { result.push('</ul></li>'); nestedLevel--; }
     if (inList) result.push('</ul>');
 
