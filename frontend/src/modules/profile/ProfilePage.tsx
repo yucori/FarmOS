@@ -376,6 +376,8 @@ export default function ProfilePage() {
           role="presentation"
           onClick={() => setIsPostcodeOpen(false)}
         >
+          {/* Focus Trap Sentinel (Start) */}
+          <div tabIndex={0} onFocus={() => postcodeCloseButtonRef.current?.focus()} aria-hidden="true" />
           <div
             role="dialog"
             aria-modal="true"
@@ -399,6 +401,8 @@ export default function ProfilePage() {
               <DaumPostcode onComplete={handleCompletePostcode} style={{ height: '100%' }} />
             </div>
           </div>
+          {/* Focus Trap Sentinel (End) */}
+          <div tabIndex={0} onFocus={() => postcodeCloseButtonRef.current?.focus()} aria-hidden="true" />
         </div>
       )}
     </div>

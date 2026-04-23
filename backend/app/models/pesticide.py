@@ -43,10 +43,5 @@ class PesticideApplication(Base):
 
     application_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     
-    application_method: Mapped[str | None] = mapped_column(Text, nullable=True)
-    application_timing: Mapped[str | None] = mapped_column(Text, nullable=True)
-    dilution_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    max_use_count_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
     # 1:N 관계 (하나의 등록 정보에 여러 RAG 문서가 매달릴 수 있음)
     document_entry: Mapped[list["PesticideProduct"]] = relationship(back_populates="details")

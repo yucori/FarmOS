@@ -49,6 +49,7 @@ def _build_payload(items: list[dict[str, Any]]) -> list[dict[str, str]]:
 
 
 async def run_ncpms_seed(_db_conf: dict[str, str]) -> None:
+    # _db_conf 파라미터는 bootstrap.py (farmos_seed.py 등)와의 인터페이스 호환성을 위해 유지합니다.
     info("NCPMS 캐시 테이블 적재 스크립트 실행")
     if not NCPMS_JSON_PATH.exists():
         info(f"NCPMS 데이터 파일 없음: {NCPMS_JSON_PATH} (의도적 스킵 가능)")

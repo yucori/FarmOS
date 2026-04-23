@@ -113,6 +113,14 @@ def fetch_details(insect_key: str) -> dict[str, str]:
             info["preventMethod"] = remove_html_tags_from_api_text(svc.get("preventMethod", ""))
         except json.JSONDecodeError as exc:
             print(f"상세 JSON 파싱 실패(insectKey={insect_key}): {exc}")
+    else:
+        try:
+            root = ET.fromstring(text)
+            for key in ("ecologyInfo", "biologyPrvnbeMth", "chemicalPrvnbeMth", "preventMethod"):
+                val = root.findtext(f".//{key}", "") or ""
+                info[key] = remove_html_tags_from_api_text(val)
+        except ET.ParseError as exc:
+            print(f"상세 XML 파싱 실패(insectKey={insect_key}): {exc}")
 
     _DETAILS_CACHE[insect_key] = info
     return info

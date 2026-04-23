@@ -39,7 +39,7 @@ def _confirm_reset() -> None:
         raise SystemExit(1)
 
 
-async def drop_all():
+async def drop_all() -> None:
     try:
         async with engine.begin() as conn:
             print("Dropping public schema cascade...")

@@ -20,8 +20,8 @@ const CROPS = [
 const PESTS = [
   "정상", "검거세미밤나방", "꽃노랑총채벌레", "담배가루이", "담배거세미나방",
   "담배나방", "도둑나방", "먹노린재", "목화바둑명나방", "무잎벌",
-  "배추좀나방", "배추흰나비", "벼룩잎벌레", "복숭아진딧물", "복숭아혹진딧물",
-  "비단노린재", "썩덩나무노린재", "알락수염노린재", "열대거세미나방", "큰28점박이무당벌레",
+  "배추좀나방", "배추흰나비", "벼룩잎벌레", "복숭아혹진딧물",
+  "비단노린재", "썩덩나무노린재", "열대거세미나방", "큰28점박이무당벌레",
   "톱다리개미허리노린재", "파밤나방"
 ];
 
@@ -387,6 +387,8 @@ export default function DiagnosisPage() {
                 role="presentation"
                 onClick={() => setIsPostcodeOpen(false)}
               >
+                {/* Focus Trap Sentinel (Start) */}
+                <div tabIndex={0} onFocus={() => postcodeCloseButtonRef.current?.focus()} aria-hidden="true" />
                 <div
                   role="dialog"
                   aria-modal="true"
@@ -410,6 +412,8 @@ export default function DiagnosisPage() {
                     <DaumPostcode onComplete={handleCompletePostcode} style={{ height: '100%' }} />
                   </div>
                 </div>
+                {/* Focus Trap Sentinel (End) */}
+                <div tabIndex={0} onFocus={() => postcodeCloseButtonRef.current?.focus()} aria-hidden="true" />
               </div>
             )}
           </div>

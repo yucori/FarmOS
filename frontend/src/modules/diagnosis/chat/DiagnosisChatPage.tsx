@@ -273,9 +273,12 @@ export default function DiagnosisChatPage() {
           
           return [...filtered, ...newMessages];
         });
+      } else {
+        throw new Error('서버 응답 오류가 발생했습니다.');
       }
     } catch (err) {
       console.error("메시지 전송 실패:", err);
+      toast.error("메시지 전송에 실패했습니다. 잠시 후 다시 시도해주세요.");
       // 실패 시 임시 메시지 복구/제거 처리
       setMessages(prev => prev.filter(m => m.id !== tempId));
     } finally {
@@ -410,5 +413,8 @@ export default function DiagnosisChatPage() {
         <p className="text-[10px] text-center text-gray-400 mt-2">AI 진단 결과에 따라 전문가와 상의 후 조치를 취하십시오.</p>
       </div>
     </div>
+  );
+}
+</div>
   );
 }

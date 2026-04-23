@@ -29,6 +29,8 @@ class DiagnosisState(TypedDict):
     pesticide_data: Optional[str]
     analysis_result: Optional[dict]
 
+from app.core.constants import FALLBACK_CROP_NAME
+
 # -----------------
 # Caching In-Memory (NCPMS & Weather)
 # -----------------
@@ -37,7 +39,6 @@ weather_cache = {} # key: region -> (timestamp_sec, data_str)
 
 NCPMS_CACHE_TTL = 30 * 24 * 3600  # 30일
 WEATHER_CACHE_TTL = 3 * 3600      # 3시간
-FALLBACK_CROP_NAME = "fallback"
 
 import math
 import urllib.parse
@@ -430,7 +431,7 @@ async def fetch_pesticide(state: DiagnosisState) -> dict:
     pest, crop = state.get("pest", "알 수 없음"), state.get("crop", "알 수 없음")
     try:
         async with async_session() as db:
-            query = select(PesticideProduct).options(joinedload(PesticideProduct.details)).where(
+            query = select(PesticideProduct).where(
                 PesticideProduct.target_name.like(f"%{pest}%"),
                 PesticideProduct.crop_name.like(f"%{crop}%")
             ).limit(50)

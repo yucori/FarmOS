@@ -1,12 +1,9 @@
 import logging
 import httpx
-import json
-import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, asc
-from sqlalchemy.exc import SQLAlchemyError
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
