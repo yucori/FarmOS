@@ -2,6 +2,7 @@
 import { useLocation, useNavigate, useParams, useParams as useReactRouterParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MdSend, MdArrowBack, MdRefresh, MdSmartToy, MdPerson } from 'react-icons/md';
+import toast from 'react-hot-toast';
 
 interface Message {
   id: string;

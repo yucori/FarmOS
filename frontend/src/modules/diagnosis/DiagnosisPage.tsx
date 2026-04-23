@@ -114,6 +114,7 @@ export default function DiagnosisPage() {
       setHistory(data);
     } catch (error) {
       console.error("Failed to fetch history:", error);
+      toast.error("진단 기록을 불러오는데 실패했습니다. 서버 연결을 확인해주세요.");
     }
   };
 
