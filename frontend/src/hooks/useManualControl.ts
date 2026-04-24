@@ -236,6 +236,8 @@ export function useManualControl() {
 
   // SSE control 이벤트로 상태 업데이트
   // 수동 조작 후 5초간 AI rule/tool 소스의 SSE는 무시 (슬라이더 복귀 방지)
+  // Design Ref: §3.3.3 (fix-toggle-shade-heat) — ESP8266 버튼 SSoT race guard +
+  // event.state.on 미포함 시 led_on/active 기반 derive (특히 shading)
   const handleControlEvent = useCallback((event: ControlEvent) => {
     const ct = event.control_type as keyof ManualControlState;
     const isAISource = ['rule', 'tool', 'ai'].includes(event.source);
@@ -246,13 +248,38 @@ export function useManualControl() {
       return; // 수동 조작 후 5초간 AI SSE 무시
     }
 
+    // source='button' (ESP8266 물리 버튼) 은 SSoT — optimistic lock 즉시 해제해
+    // 이후 UI 토글 조작이 다시 반영되도록 한다.
+    if (event.source === 'button') {
+      manualTimestamps.current[ct] = 0;
+    }
+
     setControlState(prev => {
       if (!prev) return prev;
       if (!(ct in prev)) return prev;
-      return {
-        ...prev,
-        [ct]: { ...prev[ct], ...event.state, source: event.source, updated_at: event.timestamp },
+      const incoming = event.state as Record<string, unknown>;
+      const merged: Record<string, unknown> = {
+        ...prev[ct],
+        ...incoming,
+        source: event.source,
+        updated_at: event.timestamp,
       };
+      // event.state 에 on 이 없으면 led_on/active 에서 derive
+      // (backend shading state 에 on 필드 없음 — firmware shade payload 도 on 포함하지만 방어적 이중화)
+      // irrigation 은 shape 상 on 필드가 없으므로 제외 — 추가하면 IrrigationControlState 타입 leak.
+      if (
+        !('on' in incoming) &&
+        (ct === 'ventilation' || ct === 'lighting' || ct === 'shading')
+      ) {
+        const prevState = prev[ct] as Record<string, unknown>;
+        const ledOn = incoming.led_on ?? prevState.led_on;
+        const active = incoming.active ?? prevState.active;
+        const derived = ledOn ?? active ?? prevState.on;
+        if (derived !== undefined) {
+          merged.on = Boolean(derived);
+        }
+      }
+      return { ...prev, [ct]: merged as (typeof prev)[typeof ct] };
     });
   }, []);
 
