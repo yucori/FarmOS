@@ -200,8 +200,8 @@ void sendToServer() {
   }
 
   // [S5] 로그 포맷 통일 — [SENS] 접두사 사용, 장황한 POST/Body/Response 덤프 제거
-  Serial.printf("[SENS] t=%.1f h=%.1f%% l=%d->%.0f%% (led fan=%d water=%d light=%d shade=%d)\n",
-                temp, humidity, ldrRaw, lightPercent, fanOn, waterOn, lightOn, shadeOn);
+  Serial.printf("[SENS] t=%.1f h=%.1f%% l=%d->%.0f%% (led fan=%d water=%d light=%d shade=%d heating=%d)\n",
+                temp, humidity, ldrRaw, lightPercent, fanOn, waterOn, lightOn, shadeOn, heatingOn);
 
   if (WiFi.status() != WL_CONNECTED) return;
 
@@ -266,12 +266,14 @@ void applyCommand(const char* ct, JsonObject a) {
     }
   } else if (strcmp(ct, "heating") == 0) {
     // Design Ref: §3.1.3 — D3 HW 계약상 shade 와 동기이나, 서버 명령은 독립 수신 가능
-    if (a.containsKey("insulation_pct")) {
-      heatingOn = (a["insulation_pct"].as<int>() > 0);
-    } else if (a.containsKey("on")) {
+    // 명시적 boolean(on/active) 을 insulation_pct 보다 우선 — {"on":true,"insulation_pct":0}
+    // 류의 혼합 payload 에서 의도와 반대로 해석되는 것을 방지.
+    if (a.containsKey("on")) {
       heatingOn = a["on"].as<bool>();
     } else if (a.containsKey("active")) {
       heatingOn = a["active"].as<bool>();
+    } else if (a.containsKey("insulation_pct")) {
+      heatingOn = (a["insulation_pct"].as<int>() > 0);
     }
   } else if (strcmp(ct, "irrigation") == 0) {
     // Plan FR-08: 관수 LED는 서버 상태 미러링 (버튼 없음)

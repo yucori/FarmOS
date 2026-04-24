@@ -266,10 +266,18 @@ export function useManualControl() {
       };
       // event.state 에 on 이 없으면 led_on/active 에서 derive
       // (backend shading state 에 on 필드 없음 — firmware shade payload 도 on 포함하지만 방어적 이중화)
-      if (!('on' in incoming)) {
-        const ledOn = incoming.led_on ?? (prev[ct] as Record<string, unknown>).led_on;
-        const active = incoming.active ?? (prev[ct] as Record<string, unknown>).active;
-        merged.on = (ledOn ?? active ?? (prev[ct] as Record<string, unknown>).on) as boolean;
+      // irrigation 은 shape 상 on 필드가 없으므로 제외 — 추가하면 IrrigationControlState 타입 leak.
+      if (
+        !('on' in incoming) &&
+        (ct === 'ventilation' || ct === 'lighting' || ct === 'shading')
+      ) {
+        const prevState = prev[ct] as Record<string, unknown>;
+        const ledOn = incoming.led_on ?? prevState.led_on;
+        const active = incoming.active ?? prevState.active;
+        const derived = ledOn ?? active ?? prevState.on;
+        if (derived !== undefined) {
+          merged.on = Boolean(derived);
+        }
       }
       return { ...prev, [ct]: merged as (typeof prev)[typeof ct] };
     });
