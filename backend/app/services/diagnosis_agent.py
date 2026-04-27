@@ -76,8 +76,9 @@ def map_to_grid(lat, lon):
     if theta < -math.pi:
         theta += 2.0 * math.pi
     theta *= sn
-    x = int(ra * math.sin(theta) + XO + 0.5)
-    y = int(ro - ra * math.cos(theta) + YO + 0.5)
+    # 💡 int(... + 0.5) 대신 math.floor로 일관된 반올림 처리
+    x = math.floor(ra * math.sin(theta) + XO + 0.5)
+    y = math.floor(ro - ra * math.cos(theta) + YO + 0.5)
     return str(x), str(y)
 
 
@@ -322,8 +323,10 @@ async def fetch_weather(state: DiagnosisState) -> dict:
         logger.exception("Kakao API Error for region %s", region)
 
     # 2. 기상청 단기예보 조회 (약 3일치)
-    from datetime import datetime, timedelta
-    now_dt = datetime.now()
+    # 💡 서버 타임존(UTC 등)과 관계없이 KST(UTC+9) 기준으로 계산
+    from datetime import datetime, timedelta, timezone
+    KST = timezone(timedelta(hours=9))
+    now_dt = datetime.now(KST)
     
     # 단기예보 발표 시각: 0200, 0500, 0800, 1100, 1400, 1700, 2000, 2300 (1일 8회)
     # 각 시각 10분 이후부터 조회 가능하다고 가정
@@ -345,7 +348,8 @@ async def fetch_weather(state: DiagnosisState) -> dict:
         base_date = target.strftime("%Y%m%d")
         base_time = "2300"
     
-    url = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
+    # 🔒 HTTPS 보안 통신 적용
+    url = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
     last_error = "기상청 예보 조회 실패"
 
     import requests

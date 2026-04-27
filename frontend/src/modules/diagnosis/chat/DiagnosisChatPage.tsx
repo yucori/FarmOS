@@ -36,10 +36,13 @@ function MarkdownRenderer({ content, isUser = false }: { content: string, isUser
       .replace(/^\s*(-\s*)?([^\n\-#]+ \[(?:[^\]]+)\])$/gm, '  - $2')
       .replace(/^-\s+-\s+/gm, '  - ');
 
-    // 💡 이미지 마크다운 지원 개선: 백엔드 주소 자동 연결
+    // 💡 이미지 마크다운 지원 개선: 백그라운드 주소 자동 연결 및 XSS 방어 강화
+    const BACKEND_ORIGIN = import.meta.env.VITE_BACKEND_ORIGIN || 'http://localhost:8000';
+    const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
     processedText = processedText.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
-      const fullUrl = url.startsWith('/uploads') ? `http://localhost:8000${url}` : url;
-      return `<img src="${fullUrl}" alt="${alt}" class="rounded-xl max-w-full h-auto my-2 border border-gray-100 shadow-sm" />`;
+      const fullUrl = url.startsWith('/uploads') ? `${BACKEND_ORIGIN}${url}` : url;
+      return `<img src="${escapeAttr(fullUrl)}" alt="${escapeAttr(alt)}" class="rounded-xl max-w-full h-auto my-2 border border-gray-100 shadow-sm" />`;
     });
 
     const lines = processedText.split('\n');

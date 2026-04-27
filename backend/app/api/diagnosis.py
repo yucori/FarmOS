@@ -3,6 +3,7 @@ import httpx
 import os
 import uuid
 import io
+import asyncio
 from PIL import Image
 from pathlib import Path
 
@@ -36,8 +37,12 @@ class CreateChatMessageRequest(BaseModel):
 router = APIRouter(prefix="/diagnosis", tags=["diagnosis"])
 logger = logging.getLogger(__name__)
 
-# 💡 이미지 저장을 위한 디렉토리 경로 설정
-UPLOAD_DIR = Path("data/uploads/diagnosis")
+# 🔒 보안 설정: 업로드 크기 및 픽셀 제한
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB 상한
+Image.MAX_IMAGE_PIXELS = 24_000_000   # 24MP 상한 (Decompression Bomb 방어)
+
+# 💡 이미지 저장을 위한 디렉토리 경로 설정 (절대 경로 대응)
+UPLOAD_DIR = Path(settings.UPLOAD_BASE_DIR) / "diagnosis"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @router.post("/upload")
@@ -47,39 +52,56 @@ async def upload_diagnosis_image(
 ):
     """해충 이미지를 업로드하고 WebP로 변환 및 리사이징하여 저장."""
     try:
-        # 1. 원본 이미지 읽기 (메모리)
+        # 1. 파일 크기 검증 (OOM 방어)
         contents = await file.read()
-        image = Image.open(io.BytesIO(contents))
-        
-        # [VLM 연동 포인트] 
-        # 이 시점에서 원본 고해상도 이미지(image)를 VLM 모델에 전달하여 
-        # 분석(해충 판별 등)을 수행할 수 있습니다.
-        # 현재는 VLM이 파인튜닝 중이므로 분석 로직은 생략합니다.
+        if len(contents) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="파일 크기가 너무 큽니다. (최대 10MB)"
+            )
 
-        # 2. 이미지 리사이징 (최대 320x320, 비율 유지)
-        # 💡 채팅방 말풍선 크기에 최적화된 사이즈로 조정
-        image.thumbnail((320, 320))
-        
-        # 3. WebP 변환 및 저장
-        file_id = str(uuid.uuid4())
-        file_path = UPLOAD_DIR / f"{file_id}.webp"
-        
-        # RGB 모드로 변환 (RGBA 등 다양한 포맷 지원을 위해)
-        if image.mode in ("RGBA", "P"):
-            image = image.convert("RGB")
+        # 2. 이미지 읽기 및 변환 (블로킹 작업이므로 스레드에서 실행)
+        try:
+            image = await asyncio.to_thread(Image.open, io.BytesIO(contents))
             
-        image.save(file_path, "WEBP", quality=85)
+            # 3. 이미지 리사이징 (최대 320x320, 비율 유지)
+            # 💡 채팅방 말풍선 크기에 최적화된 사이즈로 조정
+            await asyncio.to_thread(image.thumbnail, (320, 320))
+            
+            # 4. WebP 변환 및 저장
+            file_id = str(uuid.uuid4())
+            file_path = UPLOAD_DIR / f"{file_id}.webp"
+            
+            # RGB 모드로 변환
+            if image.mode in ("RGBA", "P"):
+                image = await asyncio.to_thread(image.convert, "RGB")
+                
+            await asyncio.to_thread(image.save, file_path, "WEBP", quality=85)
+            
+            # 5. 접근 가능한 URL 반환
+            image_url = f"/uploads/diagnosis/{file_id}.webp"
+            return {"image_url": image_url}
+
+        except Image.DecompressionBombError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="이미지 해상도가 너무 커서 처리할 수 없습니다."
+            )
+        except Exception as e:
+            logger.warning(f"Invalid image upload attempt: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="유효하지 않은 이미지 파일입니다."
+            )
         
-        # 4. 접근 가능한 URL 반환
-        image_url = f"/uploads/diagnosis/{file_id}.webp"
-        return {"image_url": image_url}
-        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Image upload and processing failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"이미지 처리 중 오류가 발생했습니다: {str(e)}"
-        )
+            detail="이미지 처리 중 예상치 못한 오류가 발생했습니다."
+        ) from e
 
 @router.get("/history")
 async def get_diagnosis_history(

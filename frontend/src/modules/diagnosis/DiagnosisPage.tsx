@@ -193,7 +193,7 @@ export default function DiagnosisPage() {
     }
   };
 
-  const uploadImage = async (file: File) => {
+  const uploadImage = async (file: File, signal?: AbortSignal) => {
     const formData = new FormData();
     formData.append('file', file);
     
@@ -202,6 +202,7 @@ export default function DiagnosisPage() {
         method: 'POST',
         body: formData,
         credentials: 'include',
+        signal,
       });
       
       if (!res.ok) throw new Error('이미지 업로드에 실패했습니다.');
@@ -236,7 +237,7 @@ export default function DiagnosisPage() {
       const file = fileToUpload || selectedFile;
       if (file) {
         setLoadingMessage("이미지 고해상도 분석 및 최적화 중...");
-        imageUrl = await uploadImage(file);
+        imageUrl = await uploadImage(file, controller.signal);
       }
 
       if (!isTest) {

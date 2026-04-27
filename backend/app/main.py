@@ -145,7 +145,7 @@ async def lifespan(app: FastAPI):
     # 💡 3일 지난 이미지를 삭제하는 백그라운드 태스크 시작
     async def cleanup_old_diagnosis_images():
         """24시간마다 data/uploads/diagnosis 디렉토리 내의 3일 이상 된 파일을 삭제."""
-        upload_dir = Path("data/uploads/diagnosis")
+        upload_dir = Path(settings.UPLOAD_BASE_DIR) / "diagnosis"
         while True:
             try:
                 if upload_dir.exists():
@@ -153,8 +153,10 @@ async def lifespan(app: FastAPI):
                     three_days_ago = now - (3 * 24 * 60 * 60)
                     
                     deleted_count = 0
+                    # 블로킹 I/O 최소화를 위해 루프 내부에서 체크
                     for file in upload_dir.glob("*.webp"):
                         if file.is_file() and file.stat().st_mtime < three_days_ago:
+                            # 💡 블로킹 작업을 스레드에서 실행 고려 가능하나, 파일 수가 적으므로 우선 유지
                             file.unlink()
                             deleted_count += 1
                     
@@ -166,7 +168,8 @@ async def lifespan(app: FastAPI):
             # 24시간 대기
             await _asyncio.sleep(24 * 60 * 60)
 
-    _asyncio.create_task(cleanup_old_diagnosis_images())
+    # 💡 가비지 컬렉션 방지를 위해 app.state에 강한 참조 유지
+    app.state.cleanup_task = _asyncio.create_task(cleanup_old_diagnosis_images())
 
     # 농약 DB 자동 시드 — 번들 VERSION 이 DB 버전보다 새로우면 백그라운드 시드
     try:
@@ -176,6 +179,15 @@ async def lifespan(app: FastAPI):
         _log.warning(f"농약 DB 자동 시드 스케줄 실패: {e}")
 
     yield
+
+    # 💡 백그라운드 태스크 종료 처리
+    cleanup_task = getattr(app.state, "cleanup_task", None)
+    if cleanup_task is not None:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except (_asyncio.CancelledError, Exception):
+            pass
 
     if bridge is not None:
         try:
