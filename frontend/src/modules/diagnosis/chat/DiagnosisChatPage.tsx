@@ -14,7 +14,7 @@ interface Message {
 }
 
 // 마크다운 렌더러 컴포넌트 (개선된 파서)
-function MarkdownRenderer({ content }: { content: string }) {
+function MarkdownRenderer({ content, isUser = false }: { content: string, isUser?: boolean }) {
   const parseMarkdown = (text: string): string => {
     // DOMPurify가 소독을 담당하므로 수동 이스케이프를 제거하여 백엔드 HTML 태그 보존
     const formatInline = (value: string): string =>
@@ -35,6 +35,15 @@ function MarkdownRenderer({ content }: { content: string }) {
       .replace(/^\s*(-\s*)?(사용 방법:|사용 시기:|희석 배수:|사용 횟수:)/gm, '    - $2')
       .replace(/^\s*(-\s*)?([^\n\-#]+ \[(?:[^\]]+)\])$/gm, '  - $2')
       .replace(/^-\s+-\s+/gm, '  - ');
+
+    // 💡 이미지 마크다운 지원 개선: 백그라운드 주소 자동 연결 및 XSS 방어 강화
+    const BACKEND_ORIGIN = import.meta.env.VITE_BACKEND_ORIGIN || 'http://localhost:8000';
+    const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+
+    processedText = processedText.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
+      const fullUrl = url.startsWith('/uploads') ? `${BACKEND_ORIGIN}${url}` : url;
+      return `<img src="${escapeAttr(fullUrl)}" alt="${escapeAttr(alt)}" class="rounded-xl max-w-full h-auto my-2 border border-gray-100 shadow-sm" />`;
+    });
 
     const lines = processedText.split('\n');
     const result: string[] = [];
@@ -220,9 +229,9 @@ function MarkdownRenderer({ content }: { content: string }) {
     return DOMPurify.sanitize(combinedHtml, {
       ALLOWED_TAGS: [
         'div', 'span', 'p', 'br', 'blockquote', 'strong', 'b', 'ul', 'li', 'h2', 'h3',
-        'table', 'thead', 'tbody', 'tr', 'th', 'td'
+        'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img'
       ],
-      ALLOWED_ATTR: ['class', 'style', 'title']
+      ALLOWED_ATTR: ['class', 'style', 'title', 'src', 'alt']
     });
   };
 
@@ -301,7 +310,7 @@ export default function DiagnosisChatPage() {
   }, [messages, isTyping]);
 
   const handleSend = async () => {
-    if (!inputValue.trim() || !context?.id) return;
+    if (!inputValue.trim() || !context?.id || isTyping) return;
     
     const userContent = inputValue;
     setInputValue('');
@@ -453,7 +462,7 @@ export default function DiagnosisChatPage() {
                           <MarkdownRenderer content={msg.content} />
                         </div>
                       ) : (
-                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                        <MarkdownRenderer content={msg.content} isUser={true} />
                       )}
                     </div>
                   )}
@@ -485,14 +494,17 @@ export default function DiagnosisChatPage() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="추가 질문을 입력하세요..."
-            className="flex-1 bg-gray-100 border-none rounded-2xl py-3.5 px-5 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+            disabled={isTyping}
+            placeholder={isTyping ? "진단봇의 답변을 기다리는 중..." : "추가 질문을 입력하세요..."}
+            className={`flex-1 bg-gray-100 border-none rounded-2xl py-3.5 px-5 text-sm focus:ring-2 focus:ring-primary/20 outline-none transition-all ${
+              isTyping ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           />
           <button
             onClick={handleSend}
-            disabled={!inputValue.trim()}
+            disabled={!inputValue.trim() || isTyping}
             className={`p-3.5 rounded-xl transition-all ${
-              inputValue.trim() ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-gray-200 text-gray-400'
+              inputValue.trim() && !isTyping ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
             <MdSend className="text-xl" />

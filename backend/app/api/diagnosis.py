@@ -1,7 +1,13 @@
 import logging
 import httpx
+import os
+import uuid
+import io
+import asyncio
+from PIL import Image
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, asc
 
@@ -30,6 +36,72 @@ class CreateChatMessageRequest(BaseModel):
 
 router = APIRouter(prefix="/diagnosis", tags=["diagnosis"])
 logger = logging.getLogger(__name__)
+
+# 🔒 보안 설정: 업로드 크기 및 픽셀 제한
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB 상한
+Image.MAX_IMAGE_PIXELS = 24_000_000   # 24MP 상한 (Decompression Bomb 방어)
+
+# 💡 이미지 저장을 위한 디렉토리 경로 설정 (절대 경로 대응)
+UPLOAD_DIR = Path(settings.UPLOAD_BASE_DIR) / "diagnosis"
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+@router.post("/upload")
+async def upload_diagnosis_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """해충 이미지를 업로드하고 WebP로 변환 및 리사이징하여 저장."""
+    try:
+        # 1. 파일 크기 검증 (OOM 방어)
+        contents = await file.read()
+        if len(contents) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="파일 크기가 너무 큽니다. (최대 10MB)"
+            )
+
+        # 2. 이미지 읽기 및 변환 (블로킹 작업이므로 스레드에서 실행)
+        try:
+            image = await asyncio.to_thread(Image.open, io.BytesIO(contents))
+            
+            # 3. 이미지 리사이징 (최대 320x320, 비율 유지)
+            # 💡 채팅방 말풍선 크기에 최적화된 사이즈로 조정
+            await asyncio.to_thread(image.thumbnail, (320, 320))
+            
+            # 4. WebP 변환 및 저장
+            file_id = str(uuid.uuid4())
+            file_path = UPLOAD_DIR / f"{file_id}.webp"
+            
+            # RGB 모드로 변환
+            if image.mode in ("RGBA", "P"):
+                image = await asyncio.to_thread(image.convert, "RGB")
+                
+            await asyncio.to_thread(image.save, file_path, "WEBP", quality=85)
+            
+            # 5. 접근 가능한 URL 반환
+            image_url = f"/uploads/diagnosis/{file_id}.webp"
+            return {"image_url": image_url}
+
+        except Image.DecompressionBombError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="이미지 해상도가 너무 커서 처리할 수 없습니다."
+            )
+        except Exception as e:
+            logger.warning(f"Invalid image upload attempt: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="유효하지 않은 이미지 파일입니다."
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Image upload and processing failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="이미지 처리 중 예상치 못한 오류가 발생했습니다."
+        ) from e
 
 @router.get("/history")
 async def get_diagnosis_history(
@@ -109,6 +181,16 @@ async def create_diagnosis_history(
         await db.commit()
         await db.refresh(new_history)
 
+        # 💡 사용자가 이미지를 업로드한 경우, 채팅방 첫 번째 말풍선으로 이미지를 표시하기 위해
+        # 'user' 역할의 메시지를 먼저 생성하여 저장합니다.
+        if payload.image_url:
+            user_img_msg = DiagnosisChatMessage(
+                diagnosis_id=new_history.id,
+                role="user",
+                content=f"![업로드한 이미지]({payload.image_url})"
+            )
+            db.add(user_img_msg)
+
         parsed_text = final_result.get("result_text", "")
         if parsed_text:
             initial_msg = DiagnosisChatMessage(
@@ -117,7 +199,8 @@ async def create_diagnosis_history(
                 content=parsed_text
             )
             db.add(initial_msg)
-            await db.commit()
+            
+        await db.commit()
 
         return {
             "type": "done",

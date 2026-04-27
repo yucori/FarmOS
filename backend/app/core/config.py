@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     SOIL_MOISTURE_HIGH: float = 70.0
 
     # ── 기타 설정 ────────────────────────────────────────────────────────────
+    # 업로드 경로 (절대 경로 전환을 위한 베이스)
+    UPLOAD_BASE_DIR: str = "data/uploads"
+
     # 농장 위치 (기상청 격자좌표 기본값)
     FARM_NX: int = 84
     FARM_NY: int = 106
