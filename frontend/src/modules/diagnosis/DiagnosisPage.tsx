@@ -75,6 +75,8 @@ export default function DiagnosisPage() {
   const [isPostcodeOpen, setIsPostcodeOpen] = useState(false);
   const postcodeCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
   const handleCompletePostcode = (data: DaumPostcodeData) => {
     setSelectedRegion(formatDaumAddress(data));
     setIsPostcodeOpen(false);
@@ -191,7 +193,27 @@ export default function DiagnosisPage() {
     }
   };
 
-  const startDiagnosis = async (isTest = false) => {
+  const uploadImage = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const res = await fetch(`${API_BASE}/upload`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+      
+      if (!res.ok) throw new Error('이미지 업로드에 실패했습니다.');
+      const data = await res.json();
+      return data.image_url;
+    } catch (error) {
+      console.error("Upload error:", error);
+      throw error;
+    }
+  };
+
+  const startDiagnosis = async (isTest = false, fileToUpload: File | null = null) => {
     if (!selectedRegion && !isTest) {
       toast.error('정확한 기상청 데이터 연동을 위해 주소를 입력해주세요.');
       setIsPostcodeOpen(true);
@@ -209,20 +231,27 @@ export default function DiagnosisPage() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    if (!isTest) {
-      toast('현재 이미지 자동 판독(VLM) 연동 전입니다. 선택된 해충으로 임시 진단합니다.', {
-        icon: '⚠️'
-      });
-    }
-
-    const payload = {
-      pest: testPest,
-      crop: selectedCrop || "배추",
-      region: selectedRegion || "서울"
-    };
-
-    // 일반 POST 응답 처리
     try {
+      let imageUrl = null;
+      const file = fileToUpload || selectedFile;
+      if (file) {
+        setLoadingMessage("이미지 고해상도 분석 및 최적화 중...");
+        imageUrl = await uploadImage(file);
+      }
+
+      if (!isTest) {
+        toast('현재 이미지 자동 판독(VLM) 연동 전입니다. 선택된 해충으로 임시 진단합니다.', {
+          icon: '⚠️'
+        });
+      }
+
+      const payload = {
+        pest: testPest,
+        crop: selectedCrop || "배추",
+        region: selectedRegion || "서울",
+        image_url: imageUrl
+      };
+
       const res = await fetch(`${API_BASE}/history`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -242,9 +271,7 @@ export default function DiagnosisPage() {
         throw new Error('진단 데이터를 생성하지 못했습니다.');
       }
 
-      // 목록을 갱신하되, 이동을 차단하지 않도록 비동기로 처리하거나 생략 가능 (채팅에서 돌아올 때 다시 부름)
       fetchHistory();
-      
       navigate('/diagnosis/chat', { state: { diagnosisContext: savedData } });
       
     } catch (err: any) {
@@ -256,11 +283,8 @@ export default function DiagnosisPage() {
       toast.error(err.message || 'AI 진단 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
       setIsAnalyzing(false);
     } finally {
-      // 최신 요청의 종료에서만 로딩 상태를 내린다.
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
-        // 성공 시에는 navigate로 인해 컴포넌트가 언마운트되므로 
-        // finally에서 명시적으로 false 처리를 하지 않아도 무방하나 안전을 위해 에러 시에만 수행하도록 catch로 이동하거나 유지
         setIsAnalyzing(false);
       }
     }
@@ -295,7 +319,8 @@ export default function DiagnosisPage() {
     }
 
     if (acceptedFiles.length > 0) {
-      startDiagnosis(false);
+      setSelectedFile(acceptedFiles[0]);
+      startDiagnosis(false, acceptedFiles[0]);
     }
   }, [selectedCrop, selectedRegion, testPest]);
 

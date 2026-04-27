@@ -1,8 +1,11 @@
 import logging
+import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.services.ai_agent_bridge import AiAgentBridge
@@ -139,6 +142,32 @@ async def lifespan(app: FastAPI):
         # UPSTAGE_API_KEY 미설정·네트워크 오류·모델 로드 실패 등 — 서버 기동은 계속
         _log.warning(f"공익직불 RAG 준비 실패 (/subsidy/ask 제한 동작): {e}")
 
+    # 💡 3일 지난 이미지를 삭제하는 백그라운드 태스크 시작
+    async def cleanup_old_diagnosis_images():
+        """24시간마다 data/uploads/diagnosis 디렉토리 내의 3일 이상 된 파일을 삭제."""
+        upload_dir = Path("data/uploads/diagnosis")
+        while True:
+            try:
+                if upload_dir.exists():
+                    now = time.time()
+                    three_days_ago = now - (3 * 24 * 60 * 60)
+                    
+                    deleted_count = 0
+                    for file in upload_dir.glob("*.webp"):
+                        if file.is_file() and file.stat().st_mtime < three_days_ago:
+                            file.unlink()
+                            deleted_count += 1
+                    
+                    if deleted_count > 0:
+                        _log.info(f"Cleanup: Deleted {deleted_count} old diagnosis images.")
+            except Exception as e:
+                _log.error(f"Cleanup task error: {str(e)}")
+            
+            # 24시간 대기
+            await _asyncio.sleep(24 * 60 * 60)
+
+    _asyncio.create_task(cleanup_old_diagnosis_images())
+
     # 농약 DB 자동 시드 — 번들 VERSION 이 DB 버전보다 새로우면 백그라운드 시드
     try:
         from app.core.pesticide_autoseed import schedule_pesticide_autoseed
@@ -167,6 +196,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 💡 업로드된 정적 파일(이미지 등) 서빙 설정
+app.mount("/uploads", StaticFiles(directory="data/uploads"), name="uploads")
 
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(health.router, prefix=settings.API_V1_PREFIX)

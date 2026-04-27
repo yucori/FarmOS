@@ -1,7 +1,12 @@
 import logging
 import httpx
+import os
+import uuid
+import io
+from PIL import Image
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, asc
 
@@ -30,6 +35,51 @@ class CreateChatMessageRequest(BaseModel):
 
 router = APIRouter(prefix="/diagnosis", tags=["diagnosis"])
 logger = logging.getLogger(__name__)
+
+# 💡 이미지 저장을 위한 디렉토리 경로 설정
+UPLOAD_DIR = Path("data/uploads/diagnosis")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+@router.post("/upload")
+async def upload_diagnosis_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """해충 이미지를 업로드하고 WebP로 변환 및 리사이징하여 저장."""
+    try:
+        # 1. 원본 이미지 읽기 (메모리)
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents))
+        
+        # [VLM 연동 포인트] 
+        # 이 시점에서 원본 고해상도 이미지(image)를 VLM 모델에 전달하여 
+        # 분석(해충 판별 등)을 수행할 수 있습니다.
+        # 현재는 VLM이 파인튜닝 중이므로 분석 로직은 생략합니다.
+
+        # 2. 이미지 리사이징 (최대 320x320, 비율 유지)
+        # 💡 채팅방 말풍선 크기에 최적화된 사이즈로 조정
+        image.thumbnail((320, 320))
+        
+        # 3. WebP 변환 및 저장
+        file_id = str(uuid.uuid4())
+        file_path = UPLOAD_DIR / f"{file_id}.webp"
+        
+        # RGB 모드로 변환 (RGBA 등 다양한 포맷 지원을 위해)
+        if image.mode in ("RGBA", "P"):
+            image = image.convert("RGB")
+            
+        image.save(file_path, "WEBP", quality=85)
+        
+        # 4. 접근 가능한 URL 반환
+        image_url = f"/uploads/diagnosis/{file_id}.webp"
+        return {"image_url": image_url}
+        
+    except Exception as e:
+        logger.exception("Image upload and processing failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"이미지 처리 중 오류가 발생했습니다: {str(e)}"
+        )
 
 @router.get("/history")
 async def get_diagnosis_history(
@@ -109,6 +159,16 @@ async def create_diagnosis_history(
         await db.commit()
         await db.refresh(new_history)
 
+        # 💡 사용자가 이미지를 업로드한 경우, 채팅방 첫 번째 말풍선으로 이미지를 표시하기 위해
+        # 'user' 역할의 메시지를 먼저 생성하여 저장합니다.
+        if payload.image_url:
+            user_img_msg = DiagnosisChatMessage(
+                diagnosis_id=new_history.id,
+                role="user",
+                content=f"![업로드한 이미지]({payload.image_url})"
+            )
+            db.add(user_img_msg)
+
         parsed_text = final_result.get("result_text", "")
         if parsed_text:
             initial_msg = DiagnosisChatMessage(
@@ -117,7 +177,8 @@ async def create_diagnosis_history(
                 content=parsed_text
             )
             db.add(initial_msg)
-            await db.commit()
+            
+        await db.commit()
 
         return {
             "type": "done",

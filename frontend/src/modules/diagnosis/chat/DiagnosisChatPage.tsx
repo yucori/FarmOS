@@ -14,7 +14,7 @@ interface Message {
 }
 
 // 마크다운 렌더러 컴포넌트 (개선된 파서)
-function MarkdownRenderer({ content }: { content: string }) {
+function MarkdownRenderer({ content, isUser = false }: { content: string, isUser?: boolean }) {
   const parseMarkdown = (text: string): string => {
     // DOMPurify가 소독을 담당하므로 수동 이스케이프를 제거하여 백엔드 HTML 태그 보존
     const formatInline = (value: string): string =>
@@ -35,6 +35,12 @@ function MarkdownRenderer({ content }: { content: string }) {
       .replace(/^\s*(-\s*)?(사용 방법:|사용 시기:|희석 배수:|사용 횟수:)/gm, '    - $2')
       .replace(/^\s*(-\s*)?([^\n\-#]+ \[(?:[^\]]+)\])$/gm, '  - $2')
       .replace(/^-\s+-\s+/gm, '  - ');
+
+    // 💡 이미지 마크다운 지원 개선: 백엔드 주소 자동 연결
+    processedText = processedText.replace(/!\[(.*?)\]\((.*?)\)/g, (match, alt, url) => {
+      const fullUrl = url.startsWith('/uploads') ? `http://localhost:8000${url}` : url;
+      return `<img src="${fullUrl}" alt="${alt}" class="rounded-xl max-w-full h-auto my-2 border border-gray-100 shadow-sm" />`;
+    });
 
     const lines = processedText.split('\n');
     const result: string[] = [];
@@ -220,9 +226,9 @@ function MarkdownRenderer({ content }: { content: string }) {
     return DOMPurify.sanitize(combinedHtml, {
       ALLOWED_TAGS: [
         'div', 'span', 'p', 'br', 'blockquote', 'strong', 'b', 'ul', 'li', 'h2', 'h3',
-        'table', 'thead', 'tbody', 'tr', 'th', 'td'
+        'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img'
       ],
-      ALLOWED_ATTR: ['class', 'style', 'title']
+      ALLOWED_ATTR: ['class', 'style', 'title', 'src', 'alt']
     });
   };
 
@@ -453,7 +459,7 @@ export default function DiagnosisChatPage() {
                           <MarkdownRenderer content={msg.content} />
                         </div>
                       ) : (
-                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                        <MarkdownRenderer content={msg.content} isUser={true} />
                       )}
                     </div>
                   )}

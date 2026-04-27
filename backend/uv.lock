@@ -8,7 +8,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-17T05:31:16.5613173Z"
+exclude-newer = "2026-04-20T07:03:46.4172757Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -550,6 +550,7 @@ dependencies = [
     { name = "langchain-upstage" },
     { name = "langgraph" },
     { name = "passlib", extra = ["bcrypt"] },
+    { name = "pillow" },
     { name = "psycopg2-binary" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -577,6 +578,7 @@ requires-dist = [
     { name = "langchain-upstage", specifier = ">=0.7.0" },
     { name = "langgraph", specifier = ">=1.1.6" },
     { name = "passlib", extras = ["bcrypt"], specifier = ">=1.7.4" },
+    { name = "pillow", specifier = ">=10.0.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
