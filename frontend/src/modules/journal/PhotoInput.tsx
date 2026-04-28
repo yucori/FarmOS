@@ -1,0 +1,283 @@
+import {
+  useState,
+  useRef,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
+import { MdPhotoCamera, MdClose } from "react-icons/md";
+import { motion, AnimatePresence } from "framer-motion";
+import type { STTParseResult } from "@/types";
+
+interface Props {
+  onParsed: (
+    result: STTParseResult & { photo_ids?: number[] },
+  ) => void;
+  parsePhotos: (
+    files: File[],
+    context?: { field_name?: string; crop?: string },
+  ) => Promise<
+    STTParseResult & {
+      used_exif?: boolean;
+      image_count?: number;
+      photo_ids?: number[];
+    }
+  >;
+  photoContext?: { field_name?: string; crop?: string };
+}
+
+export type PhotoStatus = "idle" | "downsampling" | "uploading" | "parsing";
+
+export interface PhotoInputHandle {
+  start: () => void;
+}
+
+const MAX_SIDE = 1280;
+const QUALITY = 0.85;
+const MAX_FILES = 10;
+
+async function downsampleImage(
+  file: File,
+  maxSide: number,
+  quality: number,
+): Promise<File> {
+  // 이미 충분히 작으면 패스 (네트워크 비용 우선)
+  if (file.size < 200_000) return file;
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const ratio = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    if (ratio === 1 && file.size < 1_000_000) return file;
+
+    const w = Math.round(bitmap.width * ratio);
+    const h = Math.round(bitmap.height * ratio);
+
+    // OffscreenCanvas 우선, 미지원 시 일반 Canvas
+    let blob: Blob | null = null;
+    if (typeof OffscreenCanvas !== "undefined") {
+      const canvas = new OffscreenCanvas(w, h);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas 2d context 실패");
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      blob = await canvas.convertToBlob({ type: "image/jpeg", quality });
+    } else {
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas 2d context 실패");
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", quality),
+      );
+    }
+    bitmap.close?.();
+    if (!blob) return file;
+
+    const newName = file.name.replace(/\.[^.]+$/, ".jpg");
+    return new File([blob], newName, { type: "image/jpeg" });
+  } catch {
+    // 다운샘플 실패 시 원본 그대로 (BE max_bytes로 fallback 차단)
+    return file;
+  }
+}
+
+const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
+  { onParsed, parsePhotos, photoContext },
+  ref,
+) {
+  const [status, setStatus] = useState<PhotoStatus>("idle");
+  const [progress, setProgress] = useState<number>(0); // 0~100
+  const [phaseText, setPhaseText] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const cancelledRef = useRef<boolean>(false);
+  const interpRef = useRef<number | null>(null);
+
+  const stopInterp = useCallback(() => {
+    if (interpRef.current !== null) {
+      window.clearInterval(interpRef.current);
+      interpRef.current = null;
+    }
+  }, []);
+
+  const startInterp = useCallback(
+    (from: number, to: number, durationMs: number) => {
+      stopInterp();
+      setProgress(from);
+      const startAt = Date.now();
+      interpRef.current = window.setInterval(() => {
+        const t = Math.min(1, (Date.now() - startAt) / durationMs);
+        setProgress(from + (to - from) * t);
+        if (t >= 1) stopInterp();
+      }, 80);
+    },
+    [stopInterp],
+  );
+
+  const openPicker = useCallback(() => {
+    cancelledRef.current = false;
+    inputRef.current?.click();
+  }, []);
+
+  const handleFiles = useCallback(
+    async (fileList: FileList) => {
+      const files = Array.from(fileList);
+      if (files.length === 0) return;
+      if (files.length > MAX_FILES) {
+        onParsed({
+          entries: [],
+          unparsed_text: "",
+          rejected: true,
+          reject_reason: `최대 ${MAX_FILES}장까지 업로드 가능합니다.`,
+        });
+        return;
+      }
+      try {
+        cancelledRef.current = false;
+
+        // 1) 다운샘플
+        setStatus("downsampling");
+        setPhaseText("사진을 준비하는 중입니다...");
+        startInterp(5, 25, 2500);
+        const downsampled = await Promise.all(
+          files.map((f) => downsampleImage(f, MAX_SIDE, QUALITY)),
+        );
+        if (cancelledRef.current) {
+          stopInterp();
+          setProgress(0);
+          setStatus("idle");
+          return;
+        }
+
+        // 2) 업로드 + 분석 (BE 단일 호출이라 둘이 합쳐짐 — UX 상 분리 표시)
+        setStatus("uploading");
+        setPhaseText("사진을 업로드하고 있습니다...");
+        startInterp(28, 55, 4000);
+        // parsePhotos 호출 전 분석 phase로 자연스럽게 전환
+        const analyzingTimer = window.setTimeout(() => {
+          setStatus("parsing");
+          setPhaseText("AI가 사진을 분석하고 있습니다...");
+          startInterp(58, 95, 12000);
+        }, 1500);
+
+        const result = await parsePhotos(downsampled, photoContext);
+        window.clearTimeout(analyzingTimer);
+        stopInterp();
+
+        if (cancelledRef.current) {
+          setProgress(0);
+          setStatus("idle");
+          return;
+        }
+
+        setProgress(100);
+        onParsed(result);
+        setTimeout(() => {
+          setProgress(0);
+          setStatus("idle");
+          setPhaseText("");
+        }, 200);
+      } catch (e) {
+        stopInterp();
+        setProgress(0);
+        setStatus("idle");
+        setPhaseText("");
+        onParsed({
+          entries: [],
+          unparsed_text: "",
+          rejected: true,
+          reject_reason: `사진 처리 실패: ${(e as Error).message}`,
+        });
+      }
+    },
+    [onParsed, parsePhotos, photoContext, startInterp, stopInterp],
+  );
+
+  const handleBusyCancel = useCallback(() => {
+    cancelledRef.current = true;
+    stopInterp();
+    setProgress(0);
+    setStatus("idle");
+    setPhaseText("");
+  }, [stopInterp]);
+
+  useImperativeHandle(ref, () => ({ start: openPicker }), [openPicker]);
+
+  const isBusy =
+    status === "downsampling" ||
+    status === "uploading" ||
+    status === "parsing";
+
+  return (
+    <>
+      {/* 파일 선택 input — 카메라/갤러리 둘 다 (모바일은 capture 힌트로 카메라 우선) */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const fl = e.target.files;
+          if (fl) void handleFiles(fl);
+          // 같은 파일 재선택 가능하도록 reset
+          e.target.value = "";
+        }}
+      />
+
+      {/* FAB — STT FAB 위에 수직으로 쌓이도록 (모바일/데스크톱 모두 right 정렬 동일) */}
+      {status === "idle" && (
+        <button
+          onClick={openPicker}
+          className="fixed bottom-[152px] right-4 lg:bottom-[96px] lg:right-8 z-30
+            h-12 px-5 rounded-full shadow-lg flex items-center justify-center gap-2
+            bg-primary hover:bg-primary/90 active:scale-95 cursor-pointer
+            transition-colors duration-200"
+        >
+          <MdPhotoCamera className="text-white text-xl" />
+          <span className="text-white text-sm font-medium">사진으로 작성</span>
+        </button>
+      )}
+
+      {/* 분석 중 오버레이 */}
+      <AnimatePresence>
+        {isBusy && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]"
+          >
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-5">
+              <p className="text-white text-lg font-medium">{phaseText}</p>
+              <div className="w-64 h-1.5 rounded-full bg-white/20 overflow-hidden">
+                <div
+                  className="h-full bg-white/90 transition-[width] duration-200"
+                  style={{ width: `${Math.round(progress)}%` }}
+                />
+              </div>
+              <p className="text-white/60 text-xs">
+                AI 결과는 미리보기 화면에서 검수·편집할 수 있습니다
+              </p>
+            </div>
+
+            {/* 취소 버튼 */}
+            <div className="fixed bottom-[88px] right-4 lg:bottom-8 lg:right-8 z-50">
+              <button
+                onClick={handleBusyCancel}
+                className="h-12 px-5 rounded-full shadow-lg flex items-center justify-center gap-2
+                  bg-white/90 cursor-pointer transition-colors hover:bg-white"
+              >
+                <MdClose className="text-gray-600 text-xl" />
+                <span className="text-gray-600 text-sm font-medium">취소</span>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+});
+
+export default PhotoInput;

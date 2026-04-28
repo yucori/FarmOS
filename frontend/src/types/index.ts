@@ -311,6 +311,15 @@ export interface AppNotification {
 }
 
 // Journal API types (농업ON format)
+export interface JournalEntryPhoto {
+  id: number;
+  width: number | null;
+  height: number | null;
+  size_bytes: number;
+  mime_type: string;
+  created_at: string;
+}
+
 export interface JournalEntryAPI {
   id: number;
   user_id: string;
@@ -333,9 +342,10 @@ export interface JournalEntryAPI {
   usage_fertilizer_amount: string | null;
   detail: string | null;
   raw_stt_text: string | null;
-  source: "stt" | "text" | "auto";
+  source: "stt" | "text" | "auto" | "vision";
   created_at: string;
   updated_at: string;
+  photos?: JournalEntryPhoto[];
 }
 
 export interface JournalListResponse {

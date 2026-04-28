@@ -5,17 +5,48 @@ from datetime import date, datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.journal import JournalEntry
+from app.core.photo_storage import delete_photo_files
+from app.models.journal import JournalEntry, JournalEntryPhoto
 from app.schemas.journal import JournalEntryCreate, JournalEntryUpdate
+
+
+async def _attach_photos(
+    db: AsyncSession, user_id: str, entry_id: int, photo_ids: list[int]
+) -> None:
+    """photo_ids 의 사진 owner 검증 후 entry_id 갱신.
+
+    다른 사용자 photo 가 섞여 있으면 해당만 무시 (오류 X).
+    이미 다른 entry 와 연결된 photo 도 무시 (이중 연결 방지).
+    """
+    if not photo_ids:
+        return
+    rows = (
+        await db.execute(
+            select(JournalEntryPhoto).where(
+                JournalEntryPhoto.id.in_(photo_ids),
+                JournalEntryPhoto.user_id == user_id,
+                JournalEntryPhoto.entry_id.is_(None),
+            )
+        )
+    ).scalars().all()
+    for r in rows:
+        r.entry_id = entry_id
+    if rows:
+        await db.commit()
 
 
 async def create_entry(
     db: AsyncSession, user_id: str, data: JournalEntryCreate
 ) -> JournalEntry:
-    entry = JournalEntry(user_id=user_id, **data.model_dump())
+    payload = data.model_dump()
+    photo_ids = payload.pop("photo_ids", None) or []
+    entry = JournalEntry(user_id=user_id, **payload)
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
+    if photo_ids:
+        await _attach_photos(db, user_id, entry.id, photo_ids)
+        await db.refresh(entry)
     return entry
 
 
@@ -83,10 +114,30 @@ async def update_entry(
         return None
 
     updates = data.model_dump(exclude_unset=True)
+    new_photo_ids = updates.pop("photo_ids", None)
+
     for field, value in updates.items():
         setattr(entry, field, value)
-
     entry.updated_at = datetime.now(timezone.utc)
+
+    if new_photo_ids is not None:
+        # reconcile — 빠진 사진은 디스크+DB 제거, 새 사진은 attach
+        current = (
+            await db.execute(
+                select(JournalEntryPhoto).where(
+                    JournalEntryPhoto.entry_id == entry_id
+                )
+            )
+        ).scalars().all()
+        new_set = set(new_photo_ids)
+        for p in current:
+            if p.id not in new_set:
+                delete_photo_files(p.file_path, p.thumb_path)
+                await db.delete(p)
+        added = [pid for pid in new_photo_ids if pid not in {p.id for p in current}]
+        if added:
+            await _attach_photos(db, user_id, entry_id, added)
+
     await db.commit()
     await db.refresh(entry)
     return entry
@@ -96,6 +147,14 @@ async def delete_entry(db: AsyncSession, user_id: str, entry_id: int) -> bool:
     entry = await get_entry(db, user_id, entry_id)
     if not entry:
         return False
+    # 디스크 파일 먼저 정리 — DB cascade 가 사진 행 자동 삭제하지만 디스크는 자동 X
+    photos = (
+        await db.execute(
+            select(JournalEntryPhoto).where(JournalEntryPhoto.entry_id == entry_id)
+        )
+    ).scalars().all()
+    for p in photos:
+        delete_photo_files(p.file_path, p.thumb_path)
     await db.delete(entry)
     await db.commit()
     return True

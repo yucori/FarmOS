@@ -195,6 +195,87 @@ export function useJournalData() {
     [],
   );
 
+  const parsePhotos = useCallback(
+    async (
+      files: File[],
+      context?: { field_name?: string; crop?: string },
+    ): Promise<
+      STTParseResult & {
+        used_exif?: boolean;
+        image_count?: number;
+        photo_ids?: number[];
+      }
+    > => {
+      try {
+        const form = new FormData();
+        files.forEach((f) => form.append("files", f));
+        if (context?.field_name) form.append("field_name", context.field_name);
+        if (context?.crop) form.append("crop", context.crop);
+        const res = await fetch(`${API_BASE}/journal/parse-photos`, {
+          ...opts,
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) {
+          let detail = `사진 분석 실패 (${res.status})`;
+          try {
+            const body = await res.json();
+            if (body?.detail) detail = String(body.detail);
+          } catch {
+            /* ignore */
+          }
+          return {
+            entries: [],
+            unparsed_text: "",
+            rejected: true,
+            reject_reason: detail,
+          };
+        }
+        return await res.json();
+      } catch (e) {
+        return {
+          entries: [],
+          unparsed_text: "",
+          rejected: true,
+          reject_reason: `네트워크 오류: ${(e as Error).message}`,
+        };
+      }
+    },
+    [],
+  );
+
+  const uploadPhoto = useCallback(
+    async (file: File): Promise<number | null> => {
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch(`${API_BASE}/journal/photos`, {
+          ...opts,
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) return null;
+        const json: { photo_id: number } = await res.json();
+        return json.photo_id;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
+  const deletePhoto = useCallback(async (photoId: number): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/journal/photos/${photoId}`, {
+        ...opts,
+        method: "DELETE",
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
   const fetchDailySummary = useCallback(
     async (date: string): Promise<DailySummaryAPI | null> => {
       try {
@@ -241,6 +322,9 @@ export function useJournalData() {
     deleteEntry,
     parseSTT,
     transcribeAudio,
+    parsePhotos,
+    uploadPhoto,
+    deletePhoto,
     fetchDailySummary,
     fetchMissingFields,
   };
