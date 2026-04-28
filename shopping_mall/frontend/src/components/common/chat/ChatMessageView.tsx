@@ -6,6 +6,7 @@ import {
   parseOrderFlowMessage,
   type OrderFlowUI,
 } from './parseOrderFlowMessage';
+import api from '@/lib/api';
 
 const QUICK_ACTIONS = [
   { label: '📦 배송 조회', intent: 'delivery', text: '배송 현황을 알고 싶어요' },
@@ -193,7 +194,15 @@ export default function ChatMessageView({ sessionId, userId, onBackClick }: Chat
   const { mutate: send, isPending } = useSendMessage();
   const { mutate: closeSession, isPending: isClosing } = useCloseSession();
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'bot'; text: string; intent?: string; escalated?: boolean; createdAt?: string }>>([WELCOME]);
+  const [messages, setMessages] = useState<Array<{
+    role: 'user' | 'bot';
+    text: string;
+    intent?: string;
+    escalated?: boolean;
+    createdAt?: string;
+    chat_log_id?: number;
+    cited_faq_ids?: number[];
+  }>>([WELCOME]);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -340,6 +349,7 @@ export default function ChatMessageView({ sessionId, userId, onBackClick }: Chat
                     disabled={isPending}
                   />
                 )}
+
               </div>
             </div>
           );

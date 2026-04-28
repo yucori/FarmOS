@@ -55,7 +55,7 @@ class ReportService:
             .filter(
                 Order.created_at >= datetime.strptime(week_start, "%Y-%m-%d"),
                 Order.created_at <= datetime.strptime(week_end, "%Y-%m-%d"),
-                Order.status != "cancelled",
+                Order.status.notin_(["cancelled", "returned"]),
             )
             .group_by(Product.id)
             .order_by(func.sum(OrderItem.quantity).desc())
@@ -70,7 +70,7 @@ class ReportService:
             .filter(
                 Order.created_at >= datetime.strptime(week_start, "%Y-%m-%d"),
                 Order.created_at <= datetime.strptime(week_end, "%Y-%m-%d"),
-                Order.status != "cancelled",
+                Order.status.notin_(["cancelled", "returned"]),
             )
             .scalar()
         ) or 0
