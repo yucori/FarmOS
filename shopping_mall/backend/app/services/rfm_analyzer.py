@@ -1,5 +1,5 @@
 """RFM (Recency, Frequency, Monetary) customer segmentation analyzer."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ class RFMAnalyzer:
     @classmethod
     def analyze_all(cls, db: Session) -> int:
         """Recalculate RFM segments for all users. Returns count of updated users."""
-        now = datetime.utcnow()
+        now = datetime.now(tz=timezone(timedelta(hours=9)))
         users = db.query(User).all()
         updated = 0
 

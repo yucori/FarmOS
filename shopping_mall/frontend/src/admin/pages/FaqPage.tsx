@@ -71,7 +71,7 @@ function CategoryFormModal({ category, onClose }: CategoryFormModalProps) {
   }
 
   function validateSlug(v: string) {
-    if (!/^[a-z0-9-]+$/.test(v)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v.trim())) {
       setSlugError('영소문자·숫자·하이픈만 사용 가능합니다.');
       return false;
     }
@@ -838,7 +838,7 @@ export default function FaqPage() {
                 </span>
               </button>
               {/* Hover actions */}
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center gap-0.5">
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 hidden group-hover:flex group-focus-within:flex items-center gap-0.5">
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); setCatFormTarget(cat); }}
@@ -989,7 +989,7 @@ export default function FaqPage() {
                           {formatDate(doc.updated_at)}
                         </td>
                         <td className="px-3 py-3">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                             <button
                               type="button"
                               onClick={() => handleToggleActive(doc)}

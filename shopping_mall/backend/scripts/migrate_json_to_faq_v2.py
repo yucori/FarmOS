@@ -442,13 +442,11 @@ def main() -> None:
     print("=" * 60)
 
     # 마이그레이션 완료 마커 확인
-    import pathlib
-    marker = pathlib.Path(__file__).parent.parent / "ai" / "data" / ".migration_v2_complete"
+    marker = AI_DATA_DIR / ".migration_v2_complete"
     if marker.exists():
         print(f"\n[알림] 이미 실행된 마이그레이션입니다 ({marker.read_text().strip()})")
-        print("  재실행하려면 마커 파일을 삭제하세요:")
-        print(f"  rm {marker}")
-        print("  (멱등 실행이므로 데이터 손상 없이 재실행 가능)")
+        print("  멱등 실행이므로 중단하지 않고 계속 진행합니다.")
+        print("  (데이터 손상 없이 카테고리·문서를 업데이트합니다)")
         print()
 
     db = SessionLocal()
@@ -550,8 +548,9 @@ def main() -> None:
 
     # 마이그레이션 완료 마커 저장
     import datetime
+    _KST = datetime.timezone(datetime.timedelta(hours=9))
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(f"completed at {datetime.datetime.now().isoformat()}\n")
+    marker.write_text(f"completed at {datetime.datetime.now(tz=_KST).isoformat()}\n")
     print(f"  마이그레이션 완료 마커 저장: {marker}")
 
 

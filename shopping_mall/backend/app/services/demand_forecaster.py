@@ -1,5 +1,5 @@
 """Simple demand forecasting using moving average."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -8,7 +8,7 @@ from app.models.order import Order, OrderItem
 
 def forecast_demand(db: Session, product_id: int, weeks: int = 4) -> dict:
     """Calculate moving average of weekly sales for a product over the last N weeks."""
-    now = datetime.utcnow()
+    now = datetime.now(tz=timezone(timedelta(hours=9)))
     weekly_sales = []
 
     for i in range(weeks):

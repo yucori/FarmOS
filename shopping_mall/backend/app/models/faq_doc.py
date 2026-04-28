@@ -126,4 +126,10 @@ class FaqDoc(Base):
         elif isinstance(tags, str):
             base["tags"] = tags
 
+        # 나머지 meta 키 전파 — 예약 키와 충돌하지 않는 경우에만
+        _RESERVED = {"db_id", "chroma_doc_id", "faq_category_id", "subcategory_slug", "subcategory_name", "tags"}
+        for key, value in meta.items():
+            if key not in _RESERVED and key not in base:
+                base[key] = value
+
         return base

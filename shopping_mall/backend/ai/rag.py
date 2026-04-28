@@ -2,14 +2,16 @@
 import logging
 import os
 import re
+import sys
 from typing import Optional
 
 import json as _json
 
-# Windows에서 torch OpenMP DLL 중복 로딩으로 인한 세그폴트 방지.
+# Windows에서 torch OpenMP DLL 중복 로딩으로 인한 세그폴트 방지 (Windows 전용).
 # bge-m3(임베딩)와 CrossEncoder(리랭커)가 각각 torch를 로딩할 때 충돌이 발생하므로
 # 프로세스 시작 시점에 미리 설정해야 효과가 있다.
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+if sys.platform.startswith("win"):
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from app.core.config import settings
 from app.paths import CHROMA_DB_PATH, AI_DATA_DIR

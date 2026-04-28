@@ -89,6 +89,15 @@ class FaqCategoryUpdate(BaseModel):
     sort_order: Optional[int] = None
     is_active: Optional[bool] = None
 
+    @field_validator("name", "description", "color", "icon", mode="before")
+    @classmethod
+    def strip_and_reject_blank(cls, v: object) -> object:
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                raise ValueError("빈 문자열은 허용되지 않습니다.")
+        return v
+
 
 class FaqCategoryResponse(BaseModel):
     id: int
@@ -122,6 +131,15 @@ class FaqDocUpdate(BaseModel):
     content: Optional[str] = None
     extra_metadata: Optional[dict] = None
     is_active: Optional[bool] = None
+
+    @field_validator("title", "content", mode="before")
+    @classmethod
+    def strip_and_reject_blank(cls, v: object) -> object:
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                raise ValueError("빈 문자열은 허용되지 않습니다.")
+        return v
 
 
 class FaqDocResponse(BaseModel):
@@ -293,12 +311,15 @@ def create_faq_category(
 def update_faq_category(
     cat_id: int,
     body: FaqCategoryUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     """FAQ 서브카테고리를 수정합니다."""
     cat = db.query(FaqCategory).filter(FaqCategory.id == cat_id).first()
     if not cat:
         raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다.")
+
+    old_name = cat.name
 
     if body.name is not None:
         cat.name = body.name.strip()
@@ -316,6 +337,15 @@ def update_faq_category(
     db.commit()
     db.refresh(cat)
     logger.info("[faq_categories] 수정: id=%d", cat_id)
+
+    # 카테고리 이름이 바뀌면 연결된 FAQ 문서의 ChromaDB 텍스트가 stale해짐
+    # (to_chroma_document()가 "[카테고리명] Q: ..." 형식으로 prefix를 포함하므로)
+    if body.name is not None and cat.name != old_name:
+        docs = db.query(FaqDoc).filter(FaqDoc.faq_category_id == cat_id).all()
+        for doc in docs:
+            background_tasks.add_task(FaqSync.upsert, doc)
+        logger.info("[faq_categories] 이름 변경으로 %d개 문서 ChromaDB 재동기화 예약: id=%d", len(docs), cat_id)
+
     return _to_response(cat, db)
 
 
@@ -323,6 +353,7 @@ def update_faq_category(
 def delete_faq_category(
     cat_id: int,
     force: bool = Query(False, description="True이면 연결된 문서가 있어도 삭제 (문서는 미분류로 전환)"),
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
     """FAQ 서브카테고리를 삭제합니다.
@@ -334,11 +365,12 @@ def delete_faq_category(
     if not cat:
         raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다.")
 
-    linked_count = (
+    linked_docs = (
         db.query(FaqDoc)
         .filter(FaqDoc.faq_category_id == cat_id)
-        .count()
+        .all()
     )
+    linked_count = len(linked_docs)
 
     if linked_count > 0 and not force:
         raise HTTPException(
@@ -358,6 +390,13 @@ def delete_faq_category(
     db.delete(cat)
     db.commit()
     logger.info("[faq_categories] 삭제: id=%d slug=%s (linked=%d)", cat_id, cat.slug, linked_count)
+
+    # 카테고리 삭제 후 연결 문서의 ChromaDB 메타데이터가 stale해짐
+    # (subcategory_slug / subcategory_name / faq_category_id 필드가 구 카테고리를 가리킴)
+    # commit 후 doc 객체들은 expired 상태이므로 백그라운드에서 reload 시 faq_category_id=None 반영
+    if linked_count > 0 and background_tasks is not None:
+        for doc in linked_docs:
+            background_tasks.add_task(FaqSync.upsert, doc)
 
 
 # ── 엔드포인트 (문서) ──────────────────────────────────────────────────────────
