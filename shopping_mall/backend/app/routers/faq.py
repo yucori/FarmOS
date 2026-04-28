@@ -353,7 +353,7 @@ def update_faq_category(
 def delete_faq_category(
     cat_id: int,
     force: bool = Query(False, description="True이면 연결된 문서가 있어도 삭제 (문서는 미분류로 전환)"),
-    background_tasks: BackgroundTasks = None,
+    background_tasks: BackgroundTasks = Depends(),
     db: Session = Depends(get_db),
 ):
     """FAQ 서브카테고리를 삭제합니다.
@@ -394,7 +394,7 @@ def delete_faq_category(
     # 카테고리 삭제 후 연결 문서의 ChromaDB 메타데이터가 stale해짐
     # (subcategory_slug / subcategory_name / faq_category_id 필드가 구 카테고리를 가리킴)
     # commit 후 doc 객체들은 expired 상태이므로 백그라운드에서 reload 시 faq_category_id=None 반영
-    if linked_count > 0 and background_tasks is not None:
+    if linked_count > 0:
         for doc in linked_docs:
             background_tasks.add_task(FaqSync.upsert, doc)
 

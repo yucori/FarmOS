@@ -1,6 +1,8 @@
 """AI-powered weekly report generation service."""
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
+
+from app.core.datetime_utils import now_kst
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -94,7 +96,7 @@ class ReportService:
             total_expense=total_expense,
             net_profit=net_profit,
             report_content=report_content,
-            generated_at=datetime.now(tz=timezone(timedelta(hours=9))),
+            generated_at=now_kst(),
         )
         db.add(report)
         db.commit()

@@ -547,10 +547,9 @@ def main() -> None:
 """)
 
     # 마이그레이션 완료 마커 저장
-    import datetime
-    _KST = datetime.timezone(datetime.timedelta(hours=9))
+    from app.core.datetime_utils import now_kst
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(f"completed at {datetime.datetime.now(tz=_KST).isoformat()}\n")
+    marker.write_text(f"completed at {now_kst().isoformat()}\n")
     print(f"  마이그레이션 완료 마커 저장: {marker}")
 
 

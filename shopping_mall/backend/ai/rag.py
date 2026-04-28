@@ -392,12 +392,15 @@ class RAGService:
             distances = results.get("distances", [[]])[0]
             metadatas = results.get("metadatas", [[]])[0]
 
-            filtered = [
-                (doc, meta or {})
-                for doc, dist, meta in zip(documents, distances, metadatas)
-                if dist < distance_threshold
-            ]
-            return filtered
+            filtered = sorted(
+                [
+                    (doc, meta or {}, dist)
+                    for doc, dist, meta in zip(documents, distances, metadatas)
+                    if dist < distance_threshold
+                ],
+                key=lambda x: x[2],
+            )
+            return [(doc, meta) for doc, meta, _ in filtered]
 
         except Exception as e:
             logger.warning(f"RAG retrieve_with_metadata failed (collection={collection}): {e}")

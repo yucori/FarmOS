@@ -1,7 +1,9 @@
 """Job: Generate weekly report."""
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+
+from app.core.datetime_utils import now_kst
 
 from app.database import SessionLocal
 from app.services.ai_report import ReportService
@@ -14,7 +16,7 @@ def run():
     """Generate the weekly report for the previous week."""
     db = SessionLocal()
     try:
-        today = datetime.now(tz=timezone(timedelta(hours=9))).date()
+        today = now_kst().date()
         # Previous week: Monday to Sunday
         week_end = today - timedelta(days=today.weekday())  # This Monday
         week_start = week_end - timedelta(days=7)

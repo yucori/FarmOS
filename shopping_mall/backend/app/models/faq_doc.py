@@ -12,7 +12,10 @@ faq_category_id FK로 서브카테고리를 구분합니다.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -97,8 +100,11 @@ class FaqDoc(Base):
         meta: dict = {}
         try:
             meta = _json.loads(self.extra_metadata or "{}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "extra_metadata 파싱 실패 — FaqDoc id=%s: %s (값: %r)",
+                self.id, e, self.extra_metadata,
+            )
 
         base: dict = {
             "db_id": self.id,
