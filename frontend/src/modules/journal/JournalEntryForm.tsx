@@ -194,7 +194,7 @@ const JournalEntryForm = forwardRef<JournalEntryFormHandle, Props>(
             </label>
             <select
               value={workStage}
-              onChange={(e) => setWorkStage(e.target.value)}
+              onChange={(e) => setWorkStage(e.target.value as typeof workStage)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
               {WORK_STAGES.map((s) => (
