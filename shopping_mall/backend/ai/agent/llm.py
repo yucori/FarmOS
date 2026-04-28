@@ -23,11 +23,7 @@ def _set_langsmith_env() -> None:
 
 
 def build_primary_llm() -> ChatOpenAI:
-<<<<<<< HEAD
-    """Primary LLM — LiteLLM 프록시 경유 (챗봇 에이전트 도구 선택·응답 생성)."""
-=======
     """Primary LLM — OpenAI 호환 엔드포인트 (LiteLLM 프록시 / OpenRouter / OpenAI)."""
->>>>>>> feature/faq-knowledge-base
     return ChatOpenAI(
         base_url=settings.litellm_url,
         api_key=settings.litellm_api_key,
