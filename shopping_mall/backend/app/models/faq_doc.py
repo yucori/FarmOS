@@ -12,7 +12,10 @@ faq_category_id FK로 서브카테고리를 구분합니다.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -97,8 +100,11 @@ class FaqDoc(Base):
         meta: dict = {}
         try:
             meta = _json.loads(self.extra_metadata or "{}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(
+                "extra_metadata 파싱 실패 — FaqDoc id=%s: %s (값: %r)",
+                self.id, e, self.extra_metadata,
+            )
 
         base: dict = {
             "db_id": self.id,
@@ -125,5 +131,11 @@ class FaqDoc(Base):
             base["tags"] = ",".join(str(t) for t in tags)
         elif isinstance(tags, str):
             base["tags"] = tags
+
+        # 나머지 meta 키 전파 — 예약 키와 충돌하지 않는 경우에만
+        _RESERVED = {"db_id", "chroma_doc_id", "faq_category_id", "subcategory_slug", "subcategory_name", "tags"}
+        for key, value in meta.items():
+            if key not in _RESERVED and key not in base:
+                base[key] = value
 
         return base

@@ -82,7 +82,6 @@ def main():
     print()
     print(SEP)
     print("  [3단계] 샘플 쿼리 검색 테스트")
-    print("  (Ollama embeddinggemma:latest 사용 - Ollama 실행 중이어야 합니다)")
     print(SEP)
     all_pass = True
 

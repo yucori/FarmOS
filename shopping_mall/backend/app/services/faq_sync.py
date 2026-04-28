@@ -18,8 +18,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import tempfile
 import time
+
+import chromadb.errors
 from typing import TYPE_CHECKING
 
 from app.paths import CHROMA_DB_PATH, AI_DATA_DIR
@@ -155,8 +159,11 @@ class FaqSync:
         if now - _last_bm25_rebuild < _BM25_REBUILD_DEBOUNCE_SEC:
             logger.debug("[FaqSync] BM25 재빌드 스킵 (debounce 중)")
             return
-        _last_bm25_rebuild = now
-        FaqSync.rebuild_bm25(client)
+        try:
+            FaqSync.rebuild_bm25(client)
+            _last_bm25_rebuild = time.time()
+        except Exception as e:
+            logger.error("[FaqSync] BM25 재빌드 실패 (타임스탬프 미갱신 — 다음 호출 시 재시도): %s", e)
 
     @staticmethod
     def rebuild_bm25(client=None) -> None:
@@ -186,12 +193,22 @@ class FaqSync:
                         corpus.append(tokenize_ko(doc_text))
                         ids.append(doc_id)
                         cols.append(col_name)
-                except Exception:
+                except chromadb.errors.NotFoundError:
                     pass  # 컬렉션 미존재 — 건너뜀
+                except Exception as e:
+                    logger.error("[faq_sync] BM25 재빌드 중 컬렉션 로드 실패: collection=%s error=%s", col_name, e)
 
             bm25_data = {"corpus": corpus, "ids": ids, "collections": cols}
-            with open(BM25_INDEX_PATH, "w", encoding="utf-8") as f:
-                json.dump(bm25_data, f, ensure_ascii=False)
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=os.path.dirname(BM25_INDEX_PATH), suffix=".tmp"
+            )
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    json.dump(bm25_data, f, ensure_ascii=False)
+                os.replace(tmp_path, BM25_INDEX_PATH)
+            except Exception:
+                os.unlink(tmp_path)
+                raise
 
             logger.info(
                 "[faq_sync] BM25 재빌드 완료: %d개 문서 → %s",

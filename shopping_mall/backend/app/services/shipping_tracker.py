@@ -1,7 +1,8 @@
 """Simulated shipping status tracker."""
 import json
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime
+
+from app.core.datetime_utils import now_kst
 from sqlalchemy.orm import Session
 
 from app.models.shipment import Shipment
@@ -23,7 +24,7 @@ class ShippingTracker:
         if shipment.status == "delivered":
             return "delivered"
 
-        now = datetime.now(timezone.utc)
+        now = now_kst()
         if shipment.created_at is None:
             return shipment.status
 
@@ -50,10 +51,10 @@ class ShippingTracker:
         """
         new_status = cls.check_status(shipment)
         if new_status == shipment.status:
-            shipment.last_checked_at = datetime.now(timezone.utc)
+            shipment.last_checked_at = now_kst()
             return False
 
-        now = datetime.now(timezone.utc)
+        now = now_kst()
         old_status = shipment.status
 
         # Update tracking history
