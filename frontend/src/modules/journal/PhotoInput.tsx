@@ -6,7 +6,6 @@ import {
   useImperativeHandle,
 } from "react";
 import { MdPhotoCamera, MdClose } from "react-icons/md";
-import { motion, AnimatePresence } from "framer-motion";
 import type { STTParseResult } from "@/types";
 
 interface Props {
@@ -170,13 +169,17 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
           return;
         }
 
+        // 오버레이를 먼저 닫은 뒤 onParsed 호출.
+        // onParsed 는 부모 state(showForm 등)를 변경하므로, 만약 onParsed 를 먼저 호출하면
+        // confirm 다이얼로그(handlePhotoParsed 의 거절 분기)가 동기적으로 실행되는 동안
+        // 자식의 setStatus 가 schedule 되지 않거나 부모 re-render 와 충돌해 overlay 가
+        // 잔존하는 사례가 발생함. status 를 먼저 idle 로 바꿔 AnimatePresence 가 exit
+        // 처리하도록 한 뒤 onParsed 를 호출한다.
         setProgress(100);
+        setProgress(0);
+        setStatus("idle");
+        setPhaseText("");
         onParsed(result);
-        setTimeout(() => {
-          setProgress(0);
-          setStatus("idle");
-          setPhaseText("");
-        }, 200);
       } catch (e) {
         stopInterp();
         setProgress(0);
@@ -240,15 +243,11 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
         </button>
       )}
 
-      {/* 분석 중 오버레이 */}
-      <AnimatePresence>
-        {isBusy && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]"
-          >
+      {/* 분석 중 오버레이 — AnimatePresence 가 unmount 시점에 잔존 이슈가 있어 단순 conditional 로 처리 */}
+      {isBusy && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px]"
+        >
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-5">
               <p className="text-white text-lg font-medium">{phaseText}</p>
               <div className="w-64 h-1.5 rounded-full bg-white/20 overflow-hidden">
@@ -273,9 +272,8 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
                 <span className="text-gray-600 text-sm font-medium">취소</span>
               </button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </div>
+      )}
     </>
   );
 });

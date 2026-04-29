@@ -231,24 +231,28 @@ export default function JournalPage() {
     if (result.rejected || !result.entries || result.entries.length === 0) {
       // LLM 재현율은 100%가 아니므로 거절을 hard block 으로 만들지 않는다.
       // 사용자에게 "그래도 직접 작성?" 선택권을 주고, 확인 시 빈 폼을 연다.
+      // setTimeout 으로 confirm 호출을 다음 task 로 미루어, 자식 PhotoInput 의
+      // setStatus("idle") 이 먼저 적용되어 분석 오버레이가 unmount 된 후 confirm
+      // 다이얼로그가 뜨도록 한다 (sync confirm 이 자식 re-render 와 race 하던 문제).
       const reason =
         result.reject_reason || "사진에서 영농 작업 단서를 찾지 못했습니다.";
-      const proceed = window.confirm(
-        `${reason}\n\n그래도 영농일지를 직접 작성하시겠어요?`,
-      );
-      if (!proceed) return;
-
-      setInputSource("vision");
-      setSttEntries([]);
-      setCurrentEntryIdx(0);
-      setSttPrefill(null); // 빈 폼 — initialData=null 로 form 기본값 표시
-      setEditingEntry(null);
-      // 거절 응답에도 photo_ids 가 함께 와서 사진은 디스크에 저장돼있음 — 첨부 살림
-      setPendingPhotoIds(
-        (result as { photo_ids?: number[] }).photo_ids ?? [],
-      );
-      setPrefillVersion((v) => v + 1);
-      setShowForm(true);
+      const photoIdsFromReject =
+        (result as { photo_ids?: number[] }).photo_ids ?? [];
+      setTimeout(() => {
+        const proceed = window.confirm(
+          `${reason}\n\n그래도 영농일지를 직접 작성하시겠어요?`,
+        );
+        if (!proceed) return;
+        setInputSource("vision");
+        setSttEntries([]);
+        setCurrentEntryIdx(0);
+        setSttPrefill(null);
+        setEditingEntry(null);
+        // 거절 응답에도 photo_ids 가 함께 와서 사진은 디스크에 저장돼있음 — 첨부 살림
+        setPendingPhotoIds(photoIdsFromReject);
+        setPrefillVersion((v) => v + 1);
+        setShowForm(true);
+      }, 0);
       return;
     }
 
