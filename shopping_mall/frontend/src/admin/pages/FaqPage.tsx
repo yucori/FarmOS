@@ -9,9 +9,12 @@ import {
   useUpdateFaqDoc,
   useDeleteFaqDoc,
   useToggleFaqActive,
+<<<<<<< HEAD
   useFaqAnalyticsSummary,
   useFaqTopCited,
   useFaqCoverageGaps,
+=======
+>>>>>>> dev
 } from '@/admin/hooks/useFaqDocs';
 import type {
   FaqCategory,
@@ -692,6 +695,7 @@ export default function FaqPage() {
   const [isCreatingDoc, setIsCreatingDoc] = useState(false);
   const [deleteDocTarget, setDeleteDocTarget] = useState<FaqDoc | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [docListError, setDocListError] = useState<string | null>(null);
 
   // ── Data ──
   const { data: categories = [] } = useFaqCategories(true);
@@ -736,12 +740,29 @@ export default function FaqPage() {
     : 0;
 
   function handleToggleActive(doc: FaqDoc) {
-    toggleActive({ id: doc.id, is_active: !doc.is_active });
+    toggleActive(
+      { id: doc.id, is_active: !doc.is_active },
+      {
+        onError: (err: unknown) => {
+          console.error('[FaqPage] toggleActive 실패', err);
+          setDocListError('활성 상태 변경에 실패했습니다.');
+          setTimeout(() => setDocListError(null), 3000);
+        },
+      },
+    );
   }
 
   function handleDeleteDoc() {
     if (!deleteDocTarget) return;
-    deleteDoc(deleteDocTarget.id, { onSuccess: () => setDeleteDocTarget(null) });
+    deleteDoc(deleteDocTarget.id, {
+      onSuccess: () => setDeleteDocTarget(null),
+      onError: (err: unknown) => {
+        console.error('[FaqPage] deleteDoc 실패', err);
+        setDocListError('문서 삭제에 실패했습니다.');
+        setTimeout(() => setDocListError(null), 3000);
+        // deleteDocTarget 유지 — 삭제 확인 모달을 닫지 않음
+      },
+    });
   }
 
   function getCategoryChip(doc: FaqDoc) {
@@ -1024,6 +1045,13 @@ export default function FaqPage() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Doc operation error banner */}
+        {docListError && (
+          <div className="mx-6 mt-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 font-medium" role="alert">
+            {docListError}
           </div>
         )}
 

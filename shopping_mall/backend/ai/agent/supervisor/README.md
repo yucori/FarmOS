@@ -103,12 +103,27 @@ _ORDER_FASTPATH_PATTERNS: frozenset[str] = frozenset({
 })
 
 def _is_order_fastpath(user_message: str) -> bool:
-    q = user_message.replace(" ", "").lower()
-    return any(p.replace(" ", "") in q for p in _ORDER_FASTPATH_PATTERNS)
+    msg = user_message.strip().lower()
+    for p in _ORDER_FASTPATH_PATTERNS:
+        pattern = r'(?<![가-힣])' + re.sub(r'\s+', r'\\s*', re.escape(p)) + r'(?![가-힣])'
+        if re.search(pattern, msg):
+            return True
+    return False
 ```
 
-공백을 제거한 뒤 패턴 포함 여부를 검사하므로 "취소 해줘"처럼 띄어쓴 경우도 매칭됩니다.  
-이 패턴에 포함되지 않는 모든 메시지는 Supervisor LLM에 위임됩니다.
+패턴 앞뒤에 한글 완성형 글자(AC00–D7A3)가 없어야 매칭됩니다 — 부분 단어 오매칭 방지.  
+패턴 내부 공백은 `\s*`로 처리하여 "취소 해줘"처럼 띄어쓴 경우도 매칭됩니다.
+
+| 입력 | 결과 | 이유 |
+|------|------|------|
+| "이 주문 취소해줘" | True | 패턴 앞 공백·뒤 종료 |
+| "교환 신청" | True | 패턴 정확 일치 |
+| "교환신청서 작성방법" | **False** | 패턴 뒤 한글 '서' 연속 |
+| "취소해줘야 하나요?" | **False** | 패턴 뒤 한글 '야' 연속 |
+| "반품신청방법 알려줘" | **False** | 패턴 뒤 한글 '방' 연속 |
+| "취소 방법 알려줘" | False | 패턴 없음 → LLM 판단 |
+
+이 패턴에 해당하지 않는 모든 메시지는 Supervisor LLM에 위임됩니다.
 
 ---
 

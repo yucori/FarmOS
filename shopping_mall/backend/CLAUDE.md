@@ -46,7 +46,7 @@ generated_at=now_kst()  # DB 저장 시 그대로 사용 (TIMESTAMP WITHOUT TIME
 
 LangChain tool calling 기반 에이전트. Primary LLM 장애 시 LangChain `.with_fallbacks()` 체인으로 Claude로 자동 전환.
 
-```
+```text
 ChatOpenAI (LITELLM_URL / LITELLM_API_KEY / LITELLM_MODEL)
   .bind_tools(tools).with_fallbacks([ChatAnthropic(...).bind_tools(tools)])
 ```
@@ -98,7 +98,8 @@ ChatOpenAI (LITELLM_URL / LITELLM_API_KEY / LITELLM_MODEL)
 | `returned` | 반품 완료 | 교환/취소 티켓 completed 시 자동 | 불가 | ✗ |
 
 **상태 전환 흐름:**
-```
+
+```text
 pending → preparing → shipped → delivered
    ↓           ↓         ↓          ↓
 (자동취소)  (자동취소) (관리자취소) → returned
@@ -120,6 +121,7 @@ reason 코드: `other_user_info` | `internal_info` | `out_of_scope` | `jailbreak
 
 `get_order_status` 호출 시 LLM이 `user_id`를 인자로 넘기면 **타인 정보 조회 시도**로 간주하고 즉시 거절합니다.
 `GetOrderStatusInput` 스키마에 `user_id` 파라미터가 없으므로, LLM이 이를 명시한다는 것은 사용자가 특정 user_id를 요청한 신호입니다.
+
 ```python
 # executor.py — _run_loop 내부
 if tc["name"] == "get_order_status" and "user_id" in tc.get("args", {}):
@@ -195,7 +197,7 @@ _ROLE_MAP = {"user": "user", "assistant": "assistant", "bot": "assistant"}
 
 `policy_faq.json`의 각 항목에는 `citation` 필드가 있고, 마이그레이션 시 답변 말미에 자동 삽입된다.
 
-```
+```text
 ...답변 본문...
 (근거: 반품교환환불정책 제5조(반품 조건 및 배송비 부담) 제1항·제2항)
 ```

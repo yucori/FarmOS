@@ -1,6 +1,9 @@
 """관리자 전용 라우터 — 티켓·챗봇 로그·배송 운영 데이터."""
+import logging
 from typing import List, Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -220,8 +223,10 @@ def update_ticket_status(
         if order and order.status == "delivered":
             try:
                 OrderProcessor.apply_return(db, order)
-            except ValueError:
-                pass  # 이미 returned이거나 다른 상태 — 조용히 무시
+            except ValueError as e:
+                logger.warning(
+                    "[admin] apply_return 실패 — order_id=%s: %s", order.id, e
+                )
 
     db.commit()
     db.refresh(t)
@@ -576,7 +581,7 @@ def admin_list_chat_sessions(
         statuses = ticket_status_map.get(sid, set())
         pending_ticket_status: Optional[str] = None
         if statuses:
-            pending_ticket_status = "received" if "received" in statuses else "processing"
+            pending_ticket_status = "processing" if "processing" in statuses else "received"
 
         result.append(AdminChatSessionResponse(
             id=sid,

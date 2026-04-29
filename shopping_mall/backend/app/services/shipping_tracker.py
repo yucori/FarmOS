@@ -1,6 +1,7 @@
 """Simulated shipping status tracker."""
 import json
 from datetime import datetime
+from typing import Optional
 
 from app.core.datetime_utils import now_kst
 from sqlalchemy.orm import Session
@@ -52,6 +53,14 @@ class ShippingTracker:
         new_status = cls.check_status(shipment)
         if new_status == shipment.status:
             shipment.last_checked_at = now_kst()
+            # check_status()는 in_transit까지만 자동 전환하므로 "delivered" 상태인
+            # shipment는 항상 이 경로로 돌아온다.  외부에서 직접 delivered로 설정된
+            # 경우에도 Order 동기화가 누락되지 않도록 여기서 방어적으로 처리한다.
+            if new_status == "delivered" and db is not None:
+                from app.models.order import Order
+                order = db.query(Order).filter(Order.id == shipment.order_id).first()
+                if order and order.status == "shipped":
+                    order.status = "delivered"
             return False
 
         now = now_kst()

@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -115,6 +115,17 @@ TOOL_TO_INTENT: dict[str, str] = {
 }
 
 
+# ── FAQ 서브카테고리 허용 슬러그 ────────────────────────────────────────────────
+# SearchFaqInput.subcategory 런타임 검증에 사용.
+# 변경 시 migrate_json_to_faq_v2.py · seed_rag.py 도 함께 수정해야 한다.
+_ALLOWED_FAQ_SUBCATEGORIES: frozenset[str] = frozenset({
+    # 이커머스 기본
+    "order", "delivery", "exchange-return", "membership", "service",
+    # 농산물 특화
+    "product-quality", "certification", "storage", "season", "origin",
+})
+
+
 # ── Pydantic 입력 스키마 ────────────────────────────────────────────────────────
 
 class SearchFaqInput(BaseModel):
@@ -163,7 +174,7 @@ class GetProductDetailInput(BaseModel):
     product_name: str | None = Field(default=None, description="상품명 (product_id 없을 때 사용)")
 
 
-# SearchFarmInfoInput 제거 — search_faq subcategory='farm-info'로 대체됨
+# SearchFarmInfoInput 제거 — search_faq(subcategory='origin')으로 대체됨
 
 
 class EscalateToAgentInput(BaseModel):
@@ -186,7 +197,7 @@ class CancelOrderInput(BaseModel):
         default="단순 변심",
         description="취소 사유 (예: '단순 변심', '배송 지연', '상품 불량')",
     )
-    refund_method: str = Field(
+    refund_method: Literal["원결제 수단", "포인트"] = Field(
         default="원결제 수단",
         description="환불 방법: '원결제 수단' | '포인트'",
     )
@@ -194,7 +205,7 @@ class CancelOrderInput(BaseModel):
 
 class ProcessRefundInput(BaseModel):
     order_id: int = Field(description="환불 처리할 주문 ID")
-    refund_method: str = Field(
+    refund_method: Literal["원결제 수단", "포인트"] = Field(
         description="환불 방법: '원결제 수단' | '포인트'",
     )
 
@@ -224,11 +235,20 @@ def build_cs_tools(
     ) -> str:
         """단일 FAQ 컬렉션 검색.
 
-        서브카테고리 슬러그가 있으면 메타데이터 필터를 적용하고,
-        결과가 없으면 전체 FAQ를 재시도합니다.
+        서브카테고리 슬러그가 있으면 메타데이터 필터를 적용합니다.
+        유효하지 않은 슬러그는 필터 없이 검색하지 않고 즉시 반환합니다.
         검색된 문서 DB ID는 ctx.cited_faq_ids에 누적됩니다.
         """
         nq = normalize_query(query)
+
+        if subcategory is not None and subcategory not in _ALLOWED_FAQ_SUBCATEGORIES:
+            logger.warning(
+                "[search_faq] 유효하지 않은 subcategory='%s' — 허용 슬러그: %s",
+                subcategory,
+                sorted(_ALLOWED_FAQ_SUBCATEGORIES),
+            )
+            return "FAQ에서 관련 내용을 찾을 수 없습니다."
+
         where = {"subcategory_slug": subcategory} if subcategory else None
 
         pairs = rag_service.retrieve_with_metadata(
@@ -283,7 +303,7 @@ def build_cs_tools(
         docs = await loop.run_in_executor(None, partial(rerank, query, candidates, 3))
         return "\n\n".join(docs)
 
-    # search_farm_info 제거 — search_faq(subcategory='farm-info')로 대체됨
+    # search_farm_info 제거 — search_faq(subcategory='origin')으로 대체됨
 
     # ── DB 도구 ───────────────────────────────────────────────────────────────
 
@@ -592,6 +612,7 @@ def build_cs_tools(
             logger.warning("[cs_tool] cancel_order ValueError: order=%d %s", order_id, e)
             return str(e)
         except Exception as e:
+            db.rollback()
             logger.error("[cs_tool] cancel_order 오류: order=%d %s", order_id, e)
             return "주문 취소 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
@@ -661,6 +682,7 @@ def build_cs_tools(
             )
 
         except Exception as e:
+            db.rollback()
             logger.error("[cs_tool] process_refund 오류: order=%d %s", order_id, e)
             return "환불 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 

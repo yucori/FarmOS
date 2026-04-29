@@ -542,8 +542,10 @@ def print_comparison(base: AggregateMetrics, imp: AggregateMetrics) -> None:
             continue
         b = base.per_type.get(t, {})
         i = imp.per_type.get(t, {})
-        b_h1 = b.get("hit1_rate", 0); i_h1 = i.get("hit1_rate", 0)
-        b_mr = b.get("mrr", 0);       i_mr = i.get("mrr", 0)
+        b_h1 = b.get("hit1_rate", 0)
+        i_h1 = i.get("hit1_rate", 0)
+        b_mr = b.get("mrr", 0)
+        i_mr = i.get("mrr", 0)
         n    = max(b.get("n", 0), i.get("n", 0))
         label = type_labels.get(t, f"{t:<14}")
         print(
