@@ -581,7 +581,7 @@ def admin_list_chat_sessions(
         statuses = ticket_status_map.get(sid, set())
         pending_ticket_status: Optional[str] = None
         if statuses:
-            pending_ticket_status = "received" if "received" in statuses else "processing"
+            pending_ticket_status = "processing" if "processing" in statuses else "received"
 
         result.append(AdminChatSessionResponse(
             id=sid,

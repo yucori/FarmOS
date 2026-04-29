@@ -601,6 +601,7 @@ def build_cs_tools(
             logger.warning("[cs_tool] cancel_order ValueError: order=%d %s", order_id, e)
             return str(e)
         except Exception as e:
+            db.rollback()
             logger.error("[cs_tool] cancel_order 오류: order=%d %s", order_id, e)
             return "주문 취소 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
@@ -670,6 +671,7 @@ def build_cs_tools(
             )
 
         except Exception as e:
+            db.rollback()
             logger.error("[cs_tool] process_refund 오류: order=%d %s", order_id, e)
             return "환불 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
