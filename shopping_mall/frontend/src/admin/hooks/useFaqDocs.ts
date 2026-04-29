@@ -7,6 +7,9 @@ import type {
   FaqCategory,
   FaqCategoryCreate,
   FaqCategoryUpdate,
+  FaqAnalyticsSummary,
+  TopCitedFaqItem,
+  CoverageGapsResponse,
 } from '@/admin/types/faq';
 
 // ──────────────────────────────────────────
@@ -20,6 +23,9 @@ const KEYS = {
   docs: ['admin-faq-docs'] as const,
   list: (filters: FaqListFilters) => ['admin-faq-docs', 'list', filters] as const,
   detail: (id: number) => ['admin-faq-docs', 'detail', id] as const,
+  analyticsSummary: ['admin-faq-analytics', 'summary'] as const,
+  topCited: (limit: number) => ['admin-faq-analytics', 'top-cited', limit] as const,
+  coverageGaps: ['admin-faq-analytics', 'coverage-gaps'] as const,
 };
 
 // ──────────────────────────────────────────
@@ -177,5 +183,44 @@ export function useToggleFaqActive() {
       queryClient.invalidateQueries({ queryKey: KEYS.docs });
       queryClient.invalidateQueries({ queryKey: KEYS.categories });
     },
+  });
+}
+
+// ──────────────────────────────────────────
+// FAQ Analytics Hooks
+// ──────────────────────────────────────────
+
+export function useFaqAnalyticsSummary() {
+  return useQuery<FaqAnalyticsSummary>({
+    queryKey: KEYS.analyticsSummary,
+    queryFn: async () => {
+      const { data } = await api.get('/api/admin/faq-analytics/summary');
+      return data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useFaqTopCited(limit = 5) {
+  return useQuery<TopCitedFaqItem[]>({
+    queryKey: KEYS.topCited(limit),
+    queryFn: async () => {
+      const { data } = await api.get('/api/admin/faq-analytics/top-cited', {
+        params: { limit },
+      });
+      return data;
+    },
+    staleTime: 30_000,
+  });
+}
+
+export function useFaqCoverageGaps() {
+  return useQuery<CoverageGapsResponse>({
+    queryKey: KEYS.coverageGaps,
+    queryFn: async () => {
+      const { data } = await api.get('/api/admin/faq-analytics/coverage-gaps');
+      return data;
+    },
+    staleTime: 30_000,
   });
 }

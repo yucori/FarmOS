@@ -9,6 +9,9 @@ import {
   useUpdateFaqDoc,
   useDeleteFaqDoc,
   useToggleFaqActive,
+  useFaqAnalyticsSummary,
+  useFaqTopCited,
+  useFaqCoverageGaps,
 } from '@/admin/hooks/useFaqDocs';
 import type {
   FaqCategory,
@@ -688,9 +691,15 @@ export default function FaqPage() {
   const [editDoc, setEditDoc] = useState<FaqDoc | null>(null);
   const [isCreatingDoc, setIsCreatingDoc] = useState(false);
   const [deleteDocTarget, setDeleteDocTarget] = useState<FaqDoc | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   // ── Data ──
   const { data: categories = [] } = useFaqCategories(true);
+
+  // ── Analytics ──
+  const { data: analyticsSummary } = useFaqAnalyticsSummary();
+  const { data: topCited = [] } = useFaqTopCited(5);
+  const { data: coverageGaps } = useFaqCoverageGaps();
 
   const docFilters = useMemo(() => {
     const f: Record<string, unknown> = {};
@@ -913,15 +922,110 @@ export default function FaqPage() {
             <option value="citations">많이 인용된 순</option>
           </select>
 
-          <button
-            type="button"
-            onClick={() => setIsCreatingDoc(true)}
-            className="ml-auto flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
-          >
-            <span className="material-symbols-outlined text-[17px]" aria-hidden="true">add</span>
-            FAQ 등록
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAnalytics((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-xl border transition-colors ${
+                showAnalytics
+                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                  : 'bg-white border-stone-200 text-stone-500 hover:border-stone-300 hover:text-stone-700'
+              }`}
+              aria-expanded={showAnalytics}
+              aria-label="인사이트 패널 열기/닫기"
+            >
+              <span className="material-symbols-outlined text-[17px]" aria-hidden="true">bar_chart</span>
+              인사이트
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCreatingDoc(true)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm"
+            >
+              <span className="material-symbols-outlined text-[17px]" aria-hidden="true">add</span>
+              FAQ 등록
+            </button>
+          </div>
         </div>
+
+        {/* Analytics Panel */}
+        {showAnalytics && (
+          <div className="bg-white border-b border-stone-100 px-6 py-4 space-y-4">
+            {/* Summary stats */}
+            {analyticsSummary && (
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {[
+                  { label: '전체 문서', value: analyticsSummary.total_docs, icon: 'description', color: 'text-emerald-600' },
+                  { label: '활성 문서', value: analyticsSummary.active_docs, icon: 'check_circle', color: 'text-emerald-500' },
+                  { label: '카테고리', value: analyticsSummary.total_categories, icon: 'category', color: 'text-sky-600' },
+                  { label: '인용 횟수', value: analyticsSummary.total_citations, icon: 'format_quote', color: 'text-violet-600' },
+                  { label: '미분류', value: analyticsSummary.uncategorized_docs, icon: 'help_outline', color: 'text-amber-600' },
+                ].map(({ label, value, icon, color }) => (
+                  <div key={label} className="bg-stone-50 rounded-xl px-4 py-3 flex items-center gap-3">
+                    <span className={`material-symbols-outlined text-[22px] ${color}`} aria-hidden="true" style={{ fontVariationSettings: "'FILL' 1" }}>{icon}</span>
+                    <div>
+                      <p className="text-[11px] text-stone-400 leading-none">{label}</p>
+                      <p className="text-lg font-bold text-stone-700 tabular-nums mt-0.5">{value.toLocaleString()}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Top cited */}
+              {topCited.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">많이 인용된 FAQ</h3>
+                  <ol className="space-y-1">
+                    {topCited.map((item, idx) => (
+                      <li key={item.id} className="flex items-center gap-2 text-sm">
+                        <span className="w-5 text-center text-xs font-bold text-stone-400 tabular-nums">{idx + 1}</span>
+                        <span className="flex-1 truncate text-stone-700">{item.title}</span>
+                        <span className="shrink-0 text-xs font-semibold text-violet-600 tabular-nums">{item.citation_count}회</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {/* Coverage gaps */}
+              {coverageGaps && (
+                <div>
+                  <h3 className="text-xs font-bold text-stone-500 uppercase tracking-wider mb-2">카테고리 커버리지</h3>
+                  <div className="space-y-1">
+                    {coverageGaps.category_coverage.map((cat) => (
+                      <div key={cat.slug} className="flex items-center gap-2">
+                        <span className="flex-1 text-xs text-stone-600 truncate">{cat.name}</span>
+                        <div className="w-24 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-emerald-400 rounded-full"
+                            style={{
+                              width: `${Math.min(100, (cat.doc_count / Math.max(1, Math.max(...coverageGaps.category_coverage.map((c) => c.doc_count)))) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="w-6 text-right text-xs tabular-nums text-stone-400">{cat.doc_count}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {coverageGaps.escalated_intents.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-[11px] font-semibold text-amber-600 mb-1">미처리 에스컬레이션 패턴</p>
+                      <div className="flex flex-wrap gap-1">
+                        {coverageGaps.escalated_intents.slice(0, 6).map((intent) => (
+                          <span key={intent} className="px-2 py-0.5 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] rounded-full">
+                            {intent}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         <div className="flex-1 overflow-auto px-6 py-4">

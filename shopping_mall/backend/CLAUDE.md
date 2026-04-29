@@ -23,6 +23,23 @@ AI_DATA_DIR     # .../backend/ai/data/
 
 정책 문서 폴더는 `paths.py`가 아닌 `settings.policy_docs_dir`로 접근합니다 (`.env`의 `POLICY_DOCS_DIR` 반영).
 
+### 날짜/시간 — KST 통일 규칙
+
+이 프로젝트는 **한국 단일 시간대(KST, UTC+9)**를 사용합니다.
+
+- `datetime.utcnow()` / `datetime.now()` (naive) 직접 사용 **금지**
+- 현재 시각이 필요하면 반드시 `now_kst()` 헬퍼 사용:
+
+```python
+from app.core.datetime_utils import now_kst
+
+now = now_kst()          # naive datetime, 값은 KST 기준
+generated_at=now_kst()  # DB 저장 시 그대로 사용 (TIMESTAMP WITHOUT TIME ZONE)
+```
+
+- DB 컬럼은 `TIMESTAMP WITHOUT TIME ZONE` 유지 — "naive이지만 KST" 약속으로 통일
+- `timezone`, `timedelta(hours=9)` 인라인 선언 금지 — `datetime_utils.py`에서 일괄 관리
+
 ---
 
 ## 챗봇 에이전트

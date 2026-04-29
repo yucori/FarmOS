@@ -352,8 +352,8 @@ def update_faq_category(
 @_categories_router.delete("/{cat_id}", status_code=204)
 def delete_faq_category(
     cat_id: int,
+    background_tasks: BackgroundTasks,
     force: bool = Query(False, description="True이면 연결된 문서가 있어도 삭제 (문서는 미분류로 전환)"),
-    background_tasks: BackgroundTasks = Depends(),
     db: Session = Depends(get_db),
 ):
     """FAQ 서브카테고리를 삭제합니다.
@@ -569,9 +569,148 @@ def delete_faq_doc(
     logger.info("[faq] 소프트 삭제: id=%d chroma_id=%s", faq_doc.id, faq_doc.chroma_doc_id)
 
 
+# ── 분석/인사이트 엔드포인트 ──────────────────────────────────────────────────────
+
+_analytics_router = APIRouter(prefix="/api/admin/faq-analytics", tags=["admin-faq"])
+
+
+class FaqAnalyticsSummary(BaseModel):
+    """FAQ 전체 현황 요약."""
+    total_docs: int
+    active_docs: int
+    total_categories: int
+    total_citations: int
+    uncategorized_docs: int
+
+
+class TopCitedFaqItem(BaseModel):
+    """인용 수 기준 상위 FAQ 항목."""
+    id: int
+    title: str
+    category_name: Optional[str] = None
+    citation_count: int
+
+
+class CoverageGapItem(BaseModel):
+    slug: str
+    doc_count: int
+
+
+class CoverageGapsResponse(BaseModel):
+    """에스컬레이션 패턴 + 카테고리별 FAQ 커버리지."""
+    escalated_intents: list[dict]
+    category_coverage: list[CoverageGapItem]
+
+
+@_analytics_router.get("/summary", response_model=FaqAnalyticsSummary)
+def get_faq_analytics_summary(db: Session = Depends(get_db)):
+    """FAQ 문서 현황 요약을 반환합니다.
+
+    - total_docs: 전체 문서 수 (비활성 포함)
+    - active_docs: 활성 문서 수
+    - total_categories: 전체 카테고리 수
+    - total_citations: 전체 인용 수 (챗봇 참조 횟수)
+    - uncategorized_docs: 미분류 문서 수 (faq_category_id IS NULL)
+    """
+    total_docs = db.query(func.count(FaqDoc.id)).scalar() or 0
+    active_docs = (
+        db.query(func.count(FaqDoc.id)).filter(FaqDoc.is_active == True).scalar() or 0
+    )
+    total_categories = db.query(func.count(FaqCategory.id)).scalar() or 0
+    total_citations = db.query(func.count(FaqCitation.id)).scalar() or 0
+    uncategorized_docs = (
+        db.query(func.count(FaqDoc.id))
+        .filter(FaqDoc.faq_category_id == None)  # noqa: E711
+        .scalar() or 0
+    )
+    return FaqAnalyticsSummary(
+        total_docs=total_docs,
+        active_docs=active_docs,
+        total_categories=total_categories,
+        total_citations=total_citations,
+        uncategorized_docs=uncategorized_docs,
+    )
+
+
+@_analytics_router.get("/top-cited", response_model=list[TopCitedFaqItem])
+def get_top_cited_faqs(
+    limit: int = Query(10, ge=1, le=50, description="반환할 최대 항목 수"),
+    db: Session = Depends(get_db),
+):
+    """인용 수 기준 상위 FAQ 문서 목록을 반환합니다.
+
+    챗봇이 응답에 가장 많이 활용한 FAQ를 파악하여
+    콘텐츠 품질 개선 우선순위를 결정하는 데 사용합니다.
+    """
+    from sqlalchemy.orm import joinedload
+
+    rows = (
+        db.query(FaqDoc, func.count(FaqCitation.id).label("cnt"))
+        .outerjoin(FaqCitation, FaqCitation.faq_doc_id == FaqDoc.id)
+        .options(joinedload(FaqDoc.faq_category))
+        .group_by(FaqDoc.id)
+        .order_by(func.count(FaqCitation.id).desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        TopCitedFaqItem(
+            id=doc.id,
+            title=doc.title,
+            category_name=doc.faq_category.name if doc.faq_category else None,
+            citation_count=cnt,
+        )
+        for doc, cnt in rows
+    ]
+
+
+@_analytics_router.get("/coverage-gaps", response_model=CoverageGapsResponse)
+def get_coverage_gaps(db: Session = Depends(get_db)):
+    """에스컬레이션된 질문 패턴과 카테고리별 FAQ 커버리지를 반환합니다.
+
+    - escalated_intents: 에스컬레이션 빈도가 높은 의도 목록
+      → FAQ 콘텐츠가 부족한 영역 식별에 사용
+    - category_coverage: 카테고리별 활성 FAQ 문서 수
+      → 카테고리 간 불균형 파악에 사용
+    """
+    from app.models.chat_log import ChatLog
+
+    # 에스컬레이션 의도별 집계
+    escalated_rows = (
+        db.query(ChatLog.intent, func.count(ChatLog.id).label("cnt"))
+        .filter(ChatLog.escalated == True)  # noqa: E712
+        .group_by(ChatLog.intent)
+        .order_by(func.count(ChatLog.id).desc())
+        .all()
+    )
+
+    # 카테고리별 활성 FAQ 문서 수
+    coverage_rows = (
+        db.query(FaqCategory.slug, func.count(FaqDoc.id).label("doc_cnt"))
+        .outerjoin(
+            FaqDoc,
+            (FaqDoc.faq_category_id == FaqCategory.id) & (FaqDoc.is_active == True),
+        )
+        .group_by(FaqCategory.id)
+        .order_by(func.count(FaqDoc.id).desc())
+        .all()
+    )
+
+    return CoverageGapsResponse(
+        escalated_intents=[
+            {"intent": r.intent, "count": r.cnt} for r in escalated_rows
+        ],
+        category_coverage=[
+            CoverageGapItem(slug=r.slug, doc_count=r.doc_cnt)
+            for r in coverage_rows
+        ],
+    )
+
+
 # ── 단일 진입점 ────────────────────────────────────────────────────────────────
 
 # main.py에서 이것만 include
 router = APIRouter()
 router.include_router(_categories_router)
 router.include_router(_docs_router)
+router.include_router(_analytics_router)

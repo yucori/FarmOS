@@ -84,6 +84,39 @@ export const PRESET_COLORS: { label: string; value: string }[] = [
   { label: '회색',     value: 'bg-stone-100 text-stone-700' },     // neutral — 일반·기타
 ];
 
+// ──────────────────────────────────────────
+// FAQ Analytics Types
+// ──────────────────────────────────────────
+
+export interface FaqAnalyticsSummary {
+  total_docs: number;
+  active_docs: number;
+  total_categories: number;
+  total_citations: number;
+  uncategorized_docs: number;
+}
+
+export interface TopCitedFaqItem {
+  id: number;
+  title: string;
+  citation_count: number;
+  category_name: string | null;
+  category_slug: string | null;
+}
+
+export interface CategoryCoverageItem {
+  slug: string;
+  name: string;
+  doc_count: number;
+}
+
+export interface CoverageGapsResponse {
+  escalated_intents: string[];
+  category_coverage: CategoryCoverageItem[];
+}
+
+// ──────────────────────────────────────────
+
 export const PRESET_ICONS: { label: string; value: string }[] = [
   { label: '물음표',    value: 'help' },
   { label: '배송',      value: 'local_shipping' },
