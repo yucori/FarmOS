@@ -24,30 +24,38 @@ def create_order(
     if not cart_items:
         return None
 
+    # ── 상품별 요청 수량 집계 ─────────────────────────────────────────────
+    # 동일 product_id 카트 행이 여러 개인 경우 합산하여 oversell 방지
+    requested_totals: dict[int, int] = {}
+    for ci in cart_items:
+        requested_totals[ci.product_id] = requested_totals.get(ci.product_id, 0) + ci.quantity
+
     # ── 재고 잠금 (with_for_update) ────────────────────────────────────────
     # 동시 주문 시 oversell 방지: 관련 상품 행을 일괄 잠금
-    product_ids = [ci.product_id for ci in cart_items]
     locked_products: dict[int, Product] = {
         p.id: p
         for p in (
             db.query(Product)
-            .filter(Product.id.in_(product_ids))
+            .filter(Product.id.in_(requested_totals.keys()))
             .with_for_update()
             .all()
         )
     }
 
     # ── 재고 충분 여부 사전 검사 ───────────────────────────────────────────
-    for ci in cart_items:
-        product = locked_products.get(ci.product_id)
+    # 집계된 총 수량 기준으로 검사 — 개별 행 비교 시 동일 상품 중복 카트의 합산 초과를 놓치는 문제 수정
+    for product_id, total_qty in requested_totals.items():
+        product = locked_products.get(product_id)
         if product is None:
-            logger.warning("[create_order] 상품 미존재: product_id=%d", ci.product_id)
+            logger.warning("[create_order] 상품 미존재: product_id=%d", product_id)
+            db.rollback()
             return None
-        if product.stock < ci.quantity:
+        if product.stock < total_qty:
             logger.warning(
                 "[create_order] 재고 부족: product=%d stock=%d requested=%d",
-                ci.product_id, product.stock, ci.quantity,
+                product_id, product.stock, total_qty,
             )
+            db.rollback()
             return None
 
     # ── 주문 금액 계산 + OrderItem 구성 ───────────────────────────────────

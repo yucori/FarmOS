@@ -73,7 +73,7 @@ class FakeRAGService:
     ) -> list[tuple[str, dict]]:
         """(doc_text, metadata) 튜플 목록 반환 — search_faq 도구용."""
         docs = self._results.get(collection, [])[:top_k]
-        return [(doc, {}) for doc in docs]
+        return [(doc, {"id": f"{collection}:{i}"}) for i, doc in enumerate(docs)]
 
     def hybrid_retrieve(
         self,

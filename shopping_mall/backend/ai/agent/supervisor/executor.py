@@ -479,18 +479,27 @@ class SupervisorExecutor:
 def _is_order_fastpath(user_message: str) -> bool:
     """접수 실행 의도가 명확한 패턴인지 확인 — Supervisor LLM 호출 생략 조건.
 
-    _ORDER_FASTPATH_PATTERNS에 정의된 복합 표현이 메시지에 포함된 경우만 True를 반환합니다.
+    _ORDER_FASTPATH_PATTERNS에 정의된 복합 표현이 메시지에 단어 경계로 포함된 경우만 True를 반환합니다.
+    패턴 앞뒤에 한글 글자가 이어지면 False — 부분 단어 오매칭 방지.
     단순 키워드 언급("취소"), 정책 문의("취소 방법"), 애매한 표현은 모두 False → LLM이 판단.
 
     예시:
-      "이 주문 취소해줘"          → True  (동사 결합형)
-      "교환 신청하고 싶어요"      → True  (신청 명사형 포함)
+      "이 주문 취소해줘"          → True  (패턴 앞뒤 경계 확인)
+      "교환 신청"                 → True  (패턴 정확 일치)
+      "교환신청서 작성방법"       → False (패턴 뒤 한글 '서' 연속 → 오매칭 방지)
+      "취소해줘야 하나요?"        → False (패턴 뒤 한글 '야' 연속 → 오매칭 방지)
       "취소 방법 알려줘"          → False (LLM 판단)
       "교환하면 비용 드나요?"     → False (LLM 판단)
       "취소"                      → False (LLM 판단)
     """
-    q = user_message.replace(" ", "").lower()  # 공백 제거 후 비교 ("취소 해줘" → "취소해줘")
-    return any(p.replace(" ", "") in q for p in _ORDER_FASTPATH_PATTERNS)
+    msg = user_message.strip().lower()
+    for p in _ORDER_FASTPATH_PATTERNS:
+        # 패턴 내 공백은 \s* 로 대체 (띄어쓰기 변형 허용)
+        # 앞뒤에 한글 완성형 글자(AC00–D7A3)가 없어야 함 — 부분 단어 일치 방지
+        pattern = r'(?<![가-힣])' + re.sub(r'\s+', r'\\s*', re.escape(p)) + r'(?![가-힣])'
+        if re.search(pattern, msg):
+            return True
+    return False
 
 
 def _detect_order_action(query: str) -> str:

@@ -221,7 +221,7 @@ if session_id and await self._has_pending_order_flow(session_id):
 
 ### 상태 전환 흐름
 
-```
+```text
 pending ──(admin)──→ preparing ──(Shipment 생성)──→ shipped ──(admin 배송완료 처리)──→ delivered
    │                    │               │                                                   │
    │                    │               │                                                   │
