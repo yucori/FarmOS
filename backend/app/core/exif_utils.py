@@ -99,10 +99,30 @@ def _parse_gps(gps_ifd: dict) -> tuple[float | None, float | None]:
         return None, None
 
 
+def _coord_component_to_float(v: Any) -> float:
+    """EXIF GPS 좌표 요소를 float 로 변환.
+
+    Pillow 가 GPS IFD 의 RATIONAL 값을 반환하는 형태가 다양:
+    - IFDRational 객체 (numerator/denominator 속성)
+    - (num, den) 분수 튜플 (Pillow 8 이전)
+    - 단순 float/int
+    """
+    if hasattr(v, "numerator") and hasattr(v, "denominator"):
+        denom = v.denominator
+        return v.numerator / denom if denom else 0.0
+    if isinstance(v, tuple) and len(v) == 2:
+        num, denom = v
+        return num / denom if denom else 0.0
+    return float(v)
+
+
 def _dms_to_decimal(dms: Any, ref: Any) -> float | None:
-    """((deg, min, sec), 'N'|'S'|'E'|'W') → decimal degrees."""
+    """((deg, min, sec), 'N'|'S'|'E'|'W') → decimal degrees.
+
+    각 deg/min/sec 는 IFDRational, (num, den) 분수, 또는 단순 숫자 모두 허용.
+    """
     try:
-        d, m, s = (float(x) for x in dms)
+        d, m, s = (_coord_component_to_float(x) for x in dms)
         decimal = d + m / 60.0 + s / 3600.0
         if isinstance(ref, bytes):
             ref = ref.decode("ascii", errors="ignore")
