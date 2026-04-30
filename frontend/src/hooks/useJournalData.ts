@@ -3,6 +3,7 @@ import type {
   JournalEntryAPI,
   JournalListResponse,
   STTParseResult,
+  JournalPhotoParseResult,
   DailySummaryAPI,
   MissingFieldAlert,
 } from "@/types";
@@ -200,13 +201,7 @@ export function useJournalData() {
     async (
       files: File[],
       context?: { field_name?: string; crop?: string },
-    ): Promise<
-      STTParseResult & {
-        used_exif?: boolean;
-        image_count?: number;
-        photo_ids?: number[];
-      }
-    > => {
+    ): Promise<JournalPhotoParseResult> => {
       try {
         const form = new FormData();
         files.forEach((f) => form.append("files", f));

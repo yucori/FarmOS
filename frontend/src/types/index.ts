@@ -368,6 +368,16 @@ export interface STTParseResult {
   reject_reason?: string | null;
 }
 
+/**
+ * `/journal/parse-photos` 응답 — STTParseResult 와 동일 shape 위에 vision 전용 필드 추가.
+ * useJournalData.parsePhotos 와 PhotoInput.tsx 의 callback 시그니처가 공유.
+ */
+export interface JournalPhotoParseResult extends STTParseResult {
+  used_exif?: boolean;
+  image_count?: number;
+  photo_ids?: number[];
+}
+
 export interface DailySummaryAPI {
   date: string;
   entry_count: number;

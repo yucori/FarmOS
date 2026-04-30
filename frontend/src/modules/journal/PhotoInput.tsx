@@ -6,23 +6,15 @@ import {
   useImperativeHandle,
 } from "react";
 import { MdPhotoCamera, MdClose } from "react-icons/md";
-import type { STTParseResult } from "@/types";
+import type { JournalPhotoParseResult } from "@/types";
 import { downsampleImage } from "@/utils/imageDownsample";
 
 interface Props {
-  onParsed: (
-    result: STTParseResult & { photo_ids?: number[] },
-  ) => void;
+  onParsed: (result: JournalPhotoParseResult) => void;
   parsePhotos: (
     files: File[],
     context?: { field_name?: string; crop?: string },
-  ) => Promise<
-    STTParseResult & {
-      used_exif?: boolean;
-      image_count?: number;
-      photo_ids?: number[];
-    }
-  >;
+  ) => Promise<JournalPhotoParseResult>;
   photoContext?: { field_name?: string; crop?: string };
 }
 
