@@ -158,11 +158,15 @@ async def parse_photos(
             db=db,
         )
     except httpx.TimeoutException:
-        raise HTTPException(504, "Vision 분석 시간이 초과되었습니다.")
+        # 알려진 흐름 — implicit traceback 은 디버깅 가치 낮아 차단.
+        raise HTTPException(504, "Vision 분석 시간이 초과되었습니다.") from None
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(502, f"Vision 분석 실패: {type(e).__name__}: {e}")
+        # 원본 traceback 보존 — 서버 로그에서 진짜 원인 추적용.
+        raise HTTPException(
+            502, f"Vision 분석 실패: {type(e).__name__}: {e}"
+        ) from e
 
     # 농약 매칭 후처리 (STT 경로와 동일)
     try:
@@ -224,7 +228,9 @@ async def upload_photo(
     try:
         meta = save_photo(current_user.id, data)
     except Exception as e:
-        raise HTTPException(502, f"사진 저장 실패: {type(e).__name__}: {e}")
+        raise HTTPException(
+            502, f"사진 저장 실패: {type(e).__name__}: {e}"
+        ) from e
 
     photo = JournalEntryPhoto(
         user_id=current_user.id,
