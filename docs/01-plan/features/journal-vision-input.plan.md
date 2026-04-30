@@ -243,7 +243,7 @@
 
 ### 7.3 Clean Architecture Approach
 
-```
+```text
 Dynamic Level — Feature-based:
 
 backend/app/
@@ -270,7 +270,7 @@ frontend/src/
 
 ### 7.4 Data Flow
 
-```
+```text
 ┌──────────────┐
 │ 사용자(농부) │
 └──────┬───────┘

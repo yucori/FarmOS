@@ -74,7 +74,7 @@ entry: Mapped["JournalEntry | None"] = relationship(back_populates="photos")
 
 ## 2. Storage Layout
 
-```
+```text
 data/uploads/journal/
 └── {user_id}/
     ├── {uuid}.jpg          # 원본 (FE 다운샘플 후 도착, BE 추가 처리 없음)
@@ -358,7 +358,7 @@ result["photo_ids"] = saved_ids
 
 ## 5. Sequence — 사진 첨부 영농일지 작성 (사진 입력 → 저장)
 
-```
+```text
 사용자                FE                        BE                          Disk            DB
   │                   │                          │                            │              │
   │ 사진 N장 선택 ───>│                          │                            │              │

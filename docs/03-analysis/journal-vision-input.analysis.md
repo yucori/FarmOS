@@ -24,7 +24,7 @@
 
 본 feature는 **live BE + 브라우저 driven E2E** 까지 검증 완료. Playwright 미사용이지만 preview MCP 로 실 사용 시나리오 시뮬레이션.
 
-```
+```text
 Overall = (Structural × 0.2) + (Functional × 0.4) + (Contract × 0.4)
 ```
 
