@@ -16,8 +16,11 @@ export async function downsampleImage(
   // 너무 작은 사진은 다운샘플 비용이 더 큼
   if (file.size < 200_000) return file;
 
+  // 조기 return / 예외 경로에서도 ImageBitmap 자원이 반드시 해제되도록 try/finally 로
+  // close() 보장 (이미지 1장당 수~수십 MB 점유 가능).
+  let bitmap: ImageBitmap | null = null;
   try {
-    const bitmap = await createImageBitmap(file);
+    bitmap = await createImageBitmap(file);
     const longest = Math.max(bitmap.width, bitmap.height);
     const ratio = Math.min(1, maxSide / longest);
     if (ratio === 1 && file.size < 1_000_000) return file;
@@ -43,12 +46,13 @@ export async function downsampleImage(
         canvas.toBlob(resolve, "image/jpeg", quality),
       );
     }
-    bitmap.close?.();
     if (!blob) return file;
 
     const newName = file.name.replace(/\.[^.]+$/, ".jpg");
     return new File([blob], newName, { type: "image/jpeg" });
   } catch {
     return file;
+  } finally {
+    bitmap?.close?.();
   }
 }
