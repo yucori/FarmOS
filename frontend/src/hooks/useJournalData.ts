@@ -201,6 +201,7 @@ export function useJournalData() {
     async (
       files: File[],
       context?: { field_name?: string; crop?: string },
+      signal?: AbortSignal,
     ): Promise<JournalPhotoParseResult> => {
       try {
         const form = new FormData();
@@ -211,6 +212,7 @@ export function useJournalData() {
           ...opts,
           method: "POST",
           body: form,
+          signal,
         });
         if (!res.ok) {
           let detail = `사진 분석 실패 (${res.status})`;
@@ -229,6 +231,11 @@ export function useJournalData() {
         }
         return await res.json();
       } catch (e) {
+        // AbortError 는 호출자가 명시적으로 취소한 것 — 그대로 throw 해서 caller 가
+        // silent 처리 가능하게.
+        if (e instanceof DOMException && e.name === "AbortError") {
+          throw e;
+        }
         return {
           entries: [],
           unparsed_text: "",
@@ -241,7 +248,7 @@ export function useJournalData() {
   );
 
   const uploadPhoto = useCallback(
-    async (file: File): Promise<number | null> => {
+    async (file: File, signal?: AbortSignal): Promise<number | null> => {
       try {
         // 큰 사진(스마트폰 12MP+) 은 BE max bytes(5MB) 초과 가능 → 다운샘플 적용
         const downsampled = await downsampleImage(file);
@@ -251,11 +258,15 @@ export function useJournalData() {
           ...opts,
           method: "POST",
           body: form,
+          signal,
         });
         if (!res.ok) return null;
         const json: { photo_id: number } = await res.json();
         return json.photo_id;
-      } catch {
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          throw e;
+        }
         return null;
       }
     },

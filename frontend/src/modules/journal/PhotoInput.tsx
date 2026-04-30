@@ -14,6 +14,7 @@ interface Props {
   parsePhotos: (
     files: File[],
     context?: { field_name?: string; crop?: string },
+    signal?: AbortSignal,
   ) => Promise<JournalPhotoParseResult>;
   photoContext?: { field_name?: string; crop?: string };
 }
@@ -37,6 +38,8 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
   const [phaseText, setPhaseText] = useState<string>("");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const cancelledRef = useRef<boolean>(false);
+  // 진행 중인 upload/parse 요청 abort 용 — handleBusyCancel 에서 abort() 호출.
+  const abortRef = useRef<AbortController | null>(null);
   const interpRef = useRef<number | null>(null);
 
   const stopInterp = useCallback(() => {
@@ -78,6 +81,11 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
         });
         return;
       }
+      // 진행 중인 fetch 를 실제로 abort 가능하게 controller 새로 생성 (취소 버튼이 단순 UI 차단이
+      // 아니라 네트워크/서버 작업까지 진짜 중단 — 비용·대역폭 절약).
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       try {
         cancelledRef.current = false;
 
@@ -106,7 +114,11 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
           startInterp(58, 95, 12000);
         }, 1500);
 
-        const result = await parsePhotos(downsampled, photoContext);
+        const result = await parsePhotos(
+          downsampled,
+          photoContext,
+          controller.signal,
+        );
         window.clearTimeout(analyzingTimer);
         stopInterp();
 
@@ -132,12 +144,18 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
         setProgress(0);
         setStatus("idle");
         setPhaseText("");
+        // AbortError 는 사용자가 취소 버튼을 눌러 의도적으로 끊은 것 — silent (toast 없음).
+        if (e instanceof DOMException && e.name === "AbortError") {
+          return;
+        }
         onParsed({
           entries: [],
           unparsed_text: "",
           rejected: true,
           reject_reason: `사진 처리 실패: ${(e as Error).message}`,
         });
+      } finally {
+        abortRef.current = null;
       }
     },
     [onParsed, parsePhotos, photoContext, startInterp, stopInterp],
@@ -145,6 +163,8 @@ const PhotoInput = forwardRef<PhotoInputHandle, Props>(function PhotoInput(
 
   const handleBusyCancel = useCallback(() => {
     cancelledRef.current = true;
+    // 진행 중인 fetch 를 실제로 중단 (서버측 vision LLM 호출/디스크 저장도 중단됨).
+    abortRef.current?.abort();
     stopInterp();
     setProgress(0);
     setStatus("idle");
