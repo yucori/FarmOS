@@ -9,6 +9,7 @@ _build_pesticide_hint)를 재사용해 후처리 일관성을 유지한다.
 from __future__ import annotations
 
 import base64
+import logging
 from datetime import date
 
 import httpx
@@ -27,6 +28,9 @@ from app.core.pesticide_candidates import build_llm_candidates
 
 # 사용자에게 보여줄 거절 사유는 모든 경로에서 통일.
 # LLM이 자체 사유를 보내도 사용자에게는 동일 문구로 표시 (FE 검수가 안전망).
+logger = logging.getLogger(__name__)
+
+
 UNIFIED_REJECT_REASON = "사진에서 영농 작업 단서를 찾지 못했습니다."
 
 
@@ -157,14 +161,17 @@ async def parse_photos(
     messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     # 농약 후보 hint (실패해도 분석은 계속)
+    # 흔한 일상 흐름(crop 미지정, DB 비어있음 등) 이라 default 운영 로그에선 noise 회피 위해 debug.
     if db is not None:
         try:
             candidates = await build_llm_candidates(db, crop=crop, top_n=80)
             hint = _build_pesticide_hint(candidates)
             if hint:
                 messages.append({"role": "system", "content": hint})
-        except Exception:
-            pass
+        except Exception as hint_err:
+            logger.debug(
+                "journal.vision.pesticide_hint_skipped err=%s", hint_err
+            )
 
     messages.append({"role": "user", "content": user_content})
 
