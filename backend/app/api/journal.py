@@ -1,5 +1,6 @@
 """영농일지 API 라우터."""
 
+import logging
 from datetime import date
 
 import httpx
@@ -29,6 +30,8 @@ from app.schemas.journal import (
     STTParseResponse,
     DailySummaryResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/journal", tags=["journal"])
 
@@ -176,11 +179,18 @@ async def parse_photos(
         for entry in result.get("entries", []):
             try:
                 enriched_entries.append(await enrich_with_pesticide_match(db, entry))
-            except Exception:
+            except Exception as match_err:
+                # 단일 entry 매칭 실패는 일상 흐름(미매칭 농약 등) — debug 레벨로 noise 회피.
+                logger.debug(
+                    "journal.parse_photos.pesticide_match_skipped err=%s", match_err
+                )
                 enriched_entries.append(entry)
         result["entries"] = enriched_entries
-    except Exception:
-        pass
+    except Exception as exc:
+        # 모듈 로드 자체 실패 — 환경/배포 이슈일 수 있어 운영자가 인지하도록 warning.
+        logger.warning(
+            "journal.parse_photos.pesticide_matcher_unavailable err=%s", exc
+        )
 
     # 사진 디스크 저장 + DB 행 생성 (entry_id=null 임시 사진)
     saved_ids: list[int] = []
