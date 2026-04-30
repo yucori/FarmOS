@@ -48,14 +48,26 @@ def save_photo(user_id: str, image_bytes: bytes) -> dict:
         img = img.convert("RGB")
 
     orig_path = udir / f"{uid}.jpg"
-    img.save(orig_path, format="JPEG", quality=_ORIG_QUALITY)
-    width, height = img.size
-
-    # 썸네일 — copy() 로 원본 size 영향 X
-    thumb_img = img.copy()
-    thumb_img.thumbnail((_THUMB_MAX_SIDE, _THUMB_MAX_SIDE))
     thumb_path = udir / f"{uid}_thumb.jpg"
-    thumb_img.save(thumb_path, format="JPEG", quality=_THUMB_QUALITY)
+
+    # 원본 + 썸네일 저장을 한 단위로 묶어 부분 실패 시 생성된 파일을 즉시 정리.
+    # DB row 가 만들어지기 전에 실패하면 orphan cleanup(entry_id=null 기준) 도 잡지 못해
+    # 디스크에만 영구히 남는 누수가 발생하므로, 본 함수 안에서 rollback 책임을 진다.
+    try:
+        img.save(orig_path, format="JPEG", quality=_ORIG_QUALITY)
+        width, height = img.size
+
+        # 썸네일 — copy() 로 원본 size 영향 X
+        thumb_img = img.copy()
+        thumb_img.thumbnail((_THUMB_MAX_SIDE, _THUMB_MAX_SIDE))
+        thumb_img.save(thumb_path, format="JPEG", quality=_THUMB_QUALITY)
+    except Exception:
+        for p in (orig_path, thumb_path):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
 
     return {
         "file_path": rel_orig,
