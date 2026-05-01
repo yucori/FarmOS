@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.services.ai_agent_bridge import AiAgentBridge
+from app.mcp import build_review_mcp
 
 from app.api import (
     ai_agent,
@@ -215,7 +216,33 @@ async def lifespan(app: FastAPI):
     await close_db()
 
 
-app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
+# ---------------------------------------------------------------------------
+# FastMCP 서버 — iot-review-mcp Design §6.1, §6.2
+# ---------------------------------------------------------------------------
+# review 분석/검색/리포트 함수들을 MCP tool 로 노출하는 sub-app.
+# 같은 프로세스에 mount 하므로 core 싱글턴(_rag, _analyzer 등) 을 공유하고,
+# 기존 JWT 검증 로직(core.security.decode_access_token) 도 그대로 재사용한다.
+# Lifespan 통합은 fastmcp.utilities.lifespan.combine_lifespans 사용.
+_review_mcp = build_review_mcp()
+# stateless_http=True: 단발 HTTP 호출(curl 등)도 세션 핸드셰이크 없이 동작.
+# progress notification 은 단일 tool 호출 내부 SSE 스트림으로 그대로 동작하므로
+# T4 (analyze_reviews_with_progress) 도 영향 없음. cross-request 상태 공유만 비활성화.
+_review_mcp_app = _review_mcp.http_app(path="/", stateless_http=True)
+
+try:
+    from fastmcp.utilities.lifespan import combine_lifespans
+    _combined_lifespan = combine_lifespans(lifespan, _review_mcp_app.lifespan)
+except ImportError:
+    # combine_lifespans 가 없는 fastmcp 버전일 때의 폴백.
+    # 두 lifespan 을 직접 nested asynccontextmanager 로 합성한다.
+    @asynccontextmanager
+    async def _combined_lifespan(app: FastAPI):  # type: ignore[no-redef]
+        async with lifespan(app):
+            async with _review_mcp_app.lifespan(app):
+                yield
+
+
+app = FastAPI(title=settings.PROJECT_NAME, lifespan=_combined_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -239,3 +266,6 @@ app.include_router(review_analysis.router, prefix=settings.API_V1_PREFIX)
 app.include_router(diagnosis.router, prefix=settings.API_V1_PREFIX)
 app.include_router(ai_agent.router, prefix=settings.API_V1_PREFIX)
 app.include_router(subsidy.router, prefix=settings.API_V1_PREFIX)
+
+# MCP sub-app mount (Design §6.1) — POST /mcp/ 에 streamable-http endpoint 노출.
+app.mount("/mcp", _review_mcp_app)
