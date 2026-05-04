@@ -2,6 +2,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -223,26 +224,38 @@ async def lifespan(app: FastAPI):
 # 같은 프로세스에 mount 하므로 core 싱글턴(_rag, _analyzer 등) 을 공유하고,
 # 기존 JWT 검증 로직(core.security.decode_access_token) 도 그대로 재사용한다.
 # Lifespan 통합은 fastmcp.utilities.lifespan.combine_lifespans 사용.
-_review_mcp = build_review_mcp()
-# stateless_http=True: 단발 HTTP 호출(curl 등)도 세션 핸드셰이크 없이 동작.
-# progress notification 은 단일 tool 호출 내부 SSE 스트림으로 그대로 동작하므로
-# T4 (analyze_reviews_with_progress) 도 영향 없음. cross-request 상태 공유만 비활성화.
-_review_mcp_app = _review_mcp.http_app(path="/", stateless_http=True)
-
+#
+# Graceful fallback: MCP 빌드/http_app 실패 시 _review_mcp_app=None 으로 폴백.
+# Bridge·RAG·사진 정리와 동일 패턴 — MCP 만 비활성화되고 REST 본체는 정상 기동.
+# stateless_http=True: 단발 HTTP 호출도 세션 핸드셰이크 없이 동작 (T4 progress SSE 영향 없음).
+_review_mcp_app = None
 try:
-    from fastmcp.utilities.lifespan import combine_lifespans
-    _combined_lifespan = combine_lifespans(lifespan, _review_mcp_app.lifespan)
-except ImportError:
-    # combine_lifespans 가 없는 fastmcp 버전일 때의 폴백.
-    # 두 lifespan 을 직접 nested asynccontextmanager 로 합성한다.
-    @asynccontextmanager
-    async def _combined_lifespan(app: FastAPI):  # type: ignore[no-redef]
-        async with lifespan(app):
-            async with _review_mcp_app.lifespan(app):
+    _review_mcp = build_review_mcp()
+    _review_mcp_app = _review_mcp.http_app(path="/", stateless_http=True)
+except Exception as _mcp_exc:  # noqa: BLE001 — MCP 실패가 BE 기동 막지 않음
+    logging.getLogger(__name__).exception(
+        "review_mcp.build_failed — /mcp 비활성, REST 본체는 정상 기동 (err=%s)",
+        _mcp_exc,
+    )
+
+if _review_mcp_app is not None:
+    try:
+        from fastmcp.utilities.lifespan import combine_lifespans
+        _combined_lifespan = combine_lifespans(lifespan, _review_mcp_app.lifespan)
+    except ImportError:
+        # combine_lifespans 가 없는 fastmcp 버전일 때의 폴백.
+        # 두 lifespan 을 단일 async with 로 합성 (PEP 617 multi-context — enter A→B, exit B→A).
+        @asynccontextmanager
+        async def _combined_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:  # type: ignore[no-redef]
+            async with lifespan(app), _review_mcp_app.lifespan(app):
                 yield
+else:
+    _combined_lifespan = lifespan
 
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=_combined_lifespan)
+# /health 등에서 MCP 가용성 확인용 플래그 (관찰성).
+app.state.review_mcp_available = _review_mcp_app is not None
 
 app.add_middleware(
     CORSMiddleware,
@@ -268,4 +281,6 @@ app.include_router(ai_agent.router, prefix=settings.API_V1_PREFIX)
 app.include_router(subsidy.router, prefix=settings.API_V1_PREFIX)
 
 # MCP sub-app mount (Design §6.1) — POST /mcp/ 에 streamable-http endpoint 노출.
-app.mount("/mcp", _review_mcp_app)
+# 빌드 실패 시 (_review_mcp_app=None) mount 생략 — REST 본체는 그대로 동작.
+if _review_mcp_app is not None:
+    app.mount("/mcp", _review_mcp_app)

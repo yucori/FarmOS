@@ -300,10 +300,12 @@ async def _run_analysis_and_save(
         target_scope=scope,
         review_count=total_count,
         sentiment_summary=result.get("sentiment_summary"),
-        keywords=[kw if isinstance(kw, dict) else kw for kw in result.get("keywords", [])],
+        # dict 가드 — 읽는 쪽(_record_to_summary, T7 get_trends)이 isinstance(dict) 필터를 사용하므로
+        # DB 저장 시점부터 동일 정규화 적용해 메모리·DB 정합성 보장.
+        keywords=[kw for kw in result.get("keywords", []) if isinstance(kw, dict)],
         summary=json.dumps(summary_data, ensure_ascii=False) if summary_data else None,
-        trends=[t if isinstance(t, dict) else t for t in trends],
-        anomalies=[a if isinstance(a, dict) else a for a in anomalies],
+        trends=[t for t in trends if isinstance(t, dict)],
+        anomalies=[a for a in anomalies if isinstance(a, dict)],
         llm_provider=result.get("llm_provider", ""),
         llm_model=result.get("llm_model", ""),
         processing_time_ms=result.get("processing_time_ms", 0),
@@ -386,8 +388,9 @@ def _register_analysis_tools(mcp: FastMCP) -> None:
             if msg:
                 try:
                     await ctx.info(msg)
-                except Exception:  # noqa: BLE001 — info 실패가 분석을 막지 않음
-                    pass
+                except Exception as e:  # noqa: BLE001 — info 실패가 분석을 막지 않음
+                    # debug 레벨 — 운영 노이즈 0, LOG_LEVEL=DEBUG 시 traceback 가시화.
+                    logger.debug("ctx.info failed: %s", e, exc_info=True)
 
         async with async_session() as db:
             user = await get_current_user_from_ctx(db)

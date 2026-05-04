@@ -202,7 +202,7 @@
 
 ### 7.3 폴더 구조 (제안)
 
-```
+```text
 backend/app/
 ├── api/
 │   └── review_analysis.py          (기존, 헬퍼 추출만)

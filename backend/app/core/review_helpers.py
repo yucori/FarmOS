@@ -74,7 +74,7 @@ def stratified_sample(reviews: list[dict], sample_size: int) -> list[dict]:
 
     sampled: list[dict] = []
     total = len(reviews)
-    for rating, group in by_rating.items():
+    for group in by_rating.values():
         # 비례 배분 (최소 1건)
         n = max(1, round(len(group) / total * sample_size))
         sampled.extend(random.sample(group, min(n, len(group))))
@@ -83,7 +83,9 @@ def stratified_sample(reviews: list[dict], sample_size: int) -> list[dict]:
     if len(sampled) > sample_size:
         sampled = random.sample(sampled, sample_size)
     elif len(sampled) < sample_size:
-        remaining = [r for r in reviews if r not in sampled]
+        # ID 기반 set lookup 으로 O(n) 보장 (dict equality 비교 회피)
+        sampled_ids = {r["id"] for r in sampled}
+        remaining = [r for r in reviews if r["id"] not in sampled_ids]
         extra = min(sample_size - len(sampled), len(remaining))
         sampled.extend(random.sample(remaining, extra))
 

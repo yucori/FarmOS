@@ -247,10 +247,12 @@ async def analyze_reviews(req: AnalyzeRequest, db: AsyncSession = Depends(get_db
         target_scope=req.scope,
         review_count=total_count,
         sentiment_summary=result.get("sentiment_summary"),
-        keywords=[kw if isinstance(kw, dict) else kw for kw in result.get("keywords", [])],
+        # dict 가드 — 읽는 쪽이 isinstance(dict) 필터를 사용하므로 저장 시점부터 동일 정규화 적용.
+        # mcp/tools.py 의 _run_analysis_and_save 와 동일 패턴 (코드 단일 소스 원칙).
+        keywords=[kw for kw in result.get("keywords", []) if isinstance(kw, dict)],
         summary=json.dumps(summary_data, ensure_ascii=False) if summary_data else None,
-        trends=[t if isinstance(t, dict) else t for t in trends],
-        anomalies=[a if isinstance(a, dict) else a for a in anomalies],
+        trends=[t for t in trends if isinstance(t, dict)],
+        anomalies=[a for a in anomalies if isinstance(a, dict)],
         llm_provider=result.get("llm_provider", ""),
         llm_model=result.get("llm_model", ""),
         processing_time_ms=result.get("processing_time_ms", 0),
