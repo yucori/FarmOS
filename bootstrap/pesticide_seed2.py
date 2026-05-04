@@ -58,7 +58,8 @@ WHITESPACE_RE = re.compile(r"\s+")
 PAREN_CONTENT_RE = re.compile(r"\([^)]*\)")
 RESULT_FILE_PATTERN = re.compile(r"^(?P<start>\d+)-(?P<end>\d+)\.json(?:\.gz)?$")
 USE_COUNT_RE = re.compile(r"(\d+)")
-DILUTION_RE = re.compile(r"(\d+(?:,\d+)?)")
+DILUTION_RE = re.compile(r"(\d+)")
+TABLE_NAME_PATTERN = re.compile(r"^[a-z_][a-z0-9_]*$")
 LEGACY_TABLE_NAMES = [
     "crops",
     "pesticide_products",
@@ -302,11 +303,12 @@ def parse_int_from_text(value: Any, pattern: re.Pattern[str]) -> int | None:
     text = clean_text(value)
     if not text:
         return None
-    match = pattern.search(text.replace(",", ""))
+    text_no_comma = text.replace(",", "")
+    match = pattern.search(text_no_comma)
     if not match:
         return None
     try:
-        return int(float(match.group(1).replace(",", "")))
+        return int(float(match.group(1)))
     except ValueError:
         return None
 
@@ -940,6 +942,8 @@ def rebuild_tables(engine: Any) -> None:
     existing_tables = set(inspect(engine).get_table_names())
     with engine.begin() as conn:
         for table_name in LEGACY_TABLE_NAMES:
+            if not TABLE_NAME_PATTERN.fullmatch(table_name):
+                raise ValueError(f"Invalid table name: {table_name}")
             if table_name in existing_tables:
                 conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}" CASCADE')
     Base.metadata.drop_all(engine)
@@ -1056,6 +1060,9 @@ def populate_database(
         for row_index, raw_row in enumerate(rows):
             stats.rows_seen += 1
             now = utcnow_iso()
+            pairs = iter_pairs(raw_row)
+            if not pairs:
+                continue
             product_candidate = build_product(
                 raw_row, source_file, source_start_index, row_index, now
             )
@@ -1071,7 +1078,7 @@ def populate_database(
             application_payload = build_application_payload(
                 raw_row, source_file, row_index
             )
-            for crop_name, target_name, target_kind in iter_pairs(raw_row):
+            for crop_name, target_name, target_kind in pairs:
                 crop = get_or_create_crop(
                     session,
                     crop_cache,
