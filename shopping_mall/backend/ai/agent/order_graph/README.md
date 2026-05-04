@@ -81,7 +81,7 @@ class OrderState(TypedDict):
 
 ### 취소 플로우
 
-```
+```text
 START
   → route_action
   → list_orders          [interrupt: 주문 선택]
@@ -93,7 +93,7 @@ START
 
 ### 교환 플로우
 
-```
+```text
 START
   → route_action
   → list_orders          [interrupt: 주문 선택]
@@ -106,7 +106,7 @@ START
 
 ### 주문 변경 플로우
 
-```
+```text
 START
   → route_action
   → list_orders          [interrupt: 주문 선택]
