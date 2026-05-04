@@ -87,6 +87,48 @@ from typing import Literal
 
 import pytest
 
+# ── 데이터셋 / 컬렉션 정의 ─────────────────────────────────────────────────────
+
+_DATASET_PATH = Path(__file__).parent / "eval_dataset.json"
+
+# 전체 컬렉션 목록 (seed_rag._ALL_COLLECTIONS 와 동일)
+_ALL_COLLECTIONS = [
+    "faq",
+    "payment_policy",
+    "delivery_policy",
+    "return_policy",
+    "quality_policy",
+    "service_policy",
+    "membership_policy",
+]
+
+
+def _required_rag_collections() -> list[str]:
+    """이 평가셋이 직접 조회하는 RAG 컬렉션 목록."""
+    data = json.loads(_DATASET_PATH.read_text(encoding="utf-8"))
+    required: set[str] = set()
+    for case in data.get("rag", []):
+        valid_cols = [col for col in case.get("collections", []) if col in _ALL_COLLECTIONS]
+        required.update(valid_cols or _ALL_COLLECTIONS)
+    return sorted(required or _ALL_COLLECTIONS)
+
+
+def _find_unavailable_collections(rag: "RAGService", collections: list[str]) -> list[str]:
+    """컬렉션이 없거나 비어 있으면 RAG 평가를 SKIP하기 위한 결함 목록."""
+    unavailable = []
+    for name in collections:
+        col = rag._get_collection(name)
+        if col is None:
+            unavailable.append(name)
+            continue
+        try:
+            if col.count() == 0:
+                unavailable.append(f"{name}(empty)")
+        except Exception:
+            unavailable.append(f"{name}(count_failed)")
+    return unavailable
+
+
 # ── RAG 환경 가용성 체크 ───────────────────────────────────────────────────────
 # 모듈 로드 시 1회 체크 — ChromaDB 미시딩 시 전체 SKIP
 
@@ -106,14 +148,10 @@ try:
     if _svc.chroma_client is None:
         _rag_skip_reason = "ChromaDB 초기화 실패. uv run python ai/seed_rag.py 를 먼저 실행하세요."
     else:
-        _REQUIRED_COLLECTIONS = [
-            "faq", "payment_policy", "delivery_policy", "return_policy",
-            "quality_policy", "service_policy", "membership_policy",
-        ]
-        _missing = [c for c in _REQUIRED_COLLECTIONS if _svc._get_collection(c) is None]
-        if _missing:
+        _unavailable = _find_unavailable_collections(_svc, _required_rag_collections())
+        if _unavailable:
             _rag_skip_reason = (
-                f"미시딩 컬렉션: {', '.join(_missing)}. "
+                f"미시딩 또는 빈 컬렉션: {', '.join(_unavailable)}. "
                 "uv run python ai/seed_rag.py 를 먼저 실행하세요."
             )
         else:
@@ -126,22 +164,6 @@ requires_rag = pytest.mark.skipif(
     _rag_service is None,
     reason=_rag_skip_reason or "RAG 환경 없음",
 )
-
-# ── 데이터셋 로드 ──────────────────────────────────────────────────────────────
-
-_DATASET_PATH = Path(__file__).parent / "eval_dataset.json"
-
-# 전체 컬렉션 목록 (seed_rag._ALL_COLLECTIONS 와 동일)
-_ALL_COLLECTIONS = [
-    "faq",
-    "payment_policy",
-    "delivery_policy",
-    "return_policy",
-    "quality_policy",
-    "service_policy",
-    "membership_policy",
-]
-
 
 @dataclass
 class RagCase:
@@ -156,7 +178,7 @@ class RagCase:
 def _load_rag_cases() -> list[RagCase]:
     data = json.loads(_DATASET_PATH.read_text(encoding="utf-8"))
     cases = []
-    for c in data["rag"]:
+    for c in data.get("rag", []):
         # 데이터셋에 명시된 컬렉션이 _ALL_COLLECTIONS에 포함된 것만 사용
         valid_cols = [col for col in c["collections"] if col in _ALL_COLLECTIONS]
         # 컬렉션 미지정이면 전체 컬렉션 사용

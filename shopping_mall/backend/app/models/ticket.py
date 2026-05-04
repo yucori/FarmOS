@@ -53,7 +53,7 @@ class ShopTicket(Base):
     # - change: [{"change_type": str, "change_detail": str}]
     items: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # 운영팀 확인용 플래그 JSON 배열
+    # 운영팀 확인용 플래그. DB 컬럼은 Text이며, 값은 JSON 배열 형태로 직렬화해 저장합니다.
     # 예: [{"code": "high_value_review", "label": "5만원 이상 운영팀 우선 확인", "severity": "warning"}]
     flags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
 
