@@ -16,8 +16,12 @@ import requests
 # ── 환경 변수 로드 ─────────────────────────────────────────────────────────────
 # .env에서 직접 읽거나 환경변수로 주입
 LITELLM_URL   = os.getenv("LITELLM_URL",   "https://litellm.lilpa.moe/v1")
-LITELLM_KEY   = os.getenv("LITELLM_API_KEY", "sk-dlndoxccv94X-U62kaeuBQ")
+LITELLM_KEY   = os.getenv("LITELLM_API_KEY", "")
 LITELLM_MODEL = os.getenv("LITELLM_MODEL", "gpt-5-nano")
+
+if not LITELLM_KEY:
+    print("ERROR: LITELLM_API_KEY is not set. Export it before running this eval script.", file=sys.stderr)
+    sys.exit(1)
 
 # ── Supervisor 시스템 프롬프트 (실제 prompts.py와 동일) ───────────────────────
 SUPERVISOR_INPUT_PROMPT = """당신은 FarmOS 마켓 고객 지원 오케스트레이터입니다.

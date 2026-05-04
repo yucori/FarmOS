@@ -106,10 +106,16 @@ try:
     if _svc.chroma_client is None:
         _rag_skip_reason = "ChromaDB 초기화 실패. uv run python ai/seed_rag.py 를 먼저 실행하세요."
     else:
-        # 핵심 컬렉션 존재 여부 확인 (faq + return_policy)
-        _faq_col = _svc._get_collection("faq")
-        if _faq_col is None:
-            _rag_skip_reason = "faq 컬렉션 없음. uv run python ai/seed_rag.py 를 먼저 실행하세요."
+        _REQUIRED_COLLECTIONS = [
+            "faq", "payment_policy", "delivery_policy", "return_policy",
+            "quality_policy", "service_policy", "membership_policy",
+        ]
+        _missing = [c for c in _REQUIRED_COLLECTIONS if _svc._get_collection(c) is None]
+        if _missing:
+            _rag_skip_reason = (
+                f"미시딩 컬렉션: {', '.join(_missing)}. "
+                "uv run python ai/seed_rag.py 를 먼저 실행하세요."
+            )
         else:
             _rag_service = _svc
 
