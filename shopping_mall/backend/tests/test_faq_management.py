@@ -1,21 +1,24 @@
 """TDD: FAQ 관리 기능 테스트
 
-GREEN 테스트 (12개, 60%): 기존 기능 — 즉시 통과
-RED 테스트  ( 8개, 40%): 신규 기능 — analytics 엔드포인트 구현 후 통과
+GREEN 테스트 (12개, 기존): 기존 기능 — 즉시 통과
+GREEN 테스트 (13개, analytics): 신규 analytics 엔드포인트
 
-TDD 사이클:
-  1. 이 파일 작성 (RED 포함)
-  2. pytest → GREEN 12개 통과, RED 8개 실패 확인
-  3. analytics 엔드포인트 + 누락 기능 구현
-  4. pytest → 전체 20개 통과
+엔드포인트 목록:
+  - GET /api/admin/faq-analytics/action-summary
+  - GET /api/admin/faq-analytics/unanswered-samples
+  - GET /api/admin/faq-analytics/least-cited
+  - GET /api/admin/faq-analytics/top-cited
+  - GET /api/admin/faq-analytics/trending-questions
 """
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -272,90 +275,213 @@ class TestFaqDocRouter:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# ❌ RED 테스트 (13~20): 인사이트/분석 API — 구현 후 GREEN
+# Analytics 테스트: unanswered-samples / unused-faqs / top-cited
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 class TestFaqAnalytics:
-    """FAQ 인사이트/지표 엔드포인트 — RED → 구현 후 GREEN."""
+    """FAQ 인사이트/지표 엔드포인트 통합 테스트."""
 
-    def test_analytics_summary_returns_200(self, client):
-        """[RED→GREEN] GET /api/admin/faq-analytics/summary → 200 + 통계 필드."""
-        resp = client.get("/api/admin/faq-analytics/summary")
+    # ── action-summary ──────────────────────────────────────────────────────
+
+    def test_analytics_action_summary_returns_200(self, client):
+        """GET /api/admin/faq-analytics/action-summary → 200."""
+        resp = client.get("/api/admin/faq-analytics/action-summary")
+        assert resp.status_code == 200
+
+    def test_analytics_action_summary_schema(self, client):
+        """action-summary 응답은 필수 카운트 필드를 포함한다."""
+        resp = client.get("/api/admin/faq-analytics/action-summary")
         assert resp.status_code == 200
         data = resp.json()
-        assert "total_docs" in data
-        assert "active_docs" in data
-        assert "total_categories" in data
-        assert "total_citations" in data
-        assert "uncategorized_docs" in data
+        for field in ("total_docs", "active_docs", "unanswered_count", "underperforming_count"):
+            assert field in data, f"필드 누락: {field}"
+        assert data["total_docs"] >= data["active_docs"]
 
-    def test_analytics_summary_correct_counts(self, client):
-        """[RED→GREEN] 문서 2개 생성 후 summary 수치 검증."""
-        client.post("/api/admin/faq-docs", json={"title": "Q1", "content": "A1"})
-        client.post("/api/admin/faq-docs", json={"title": "Q2", "content": "A2"})
+    def test_analytics_action_summary_counts_active_docs(self, client):
+        """action-summary.active_docs 는 is_active=True 문서 수를 정확히 반영한다."""
+        before = client.get("/api/admin/faq-analytics/action-summary").json()["active_docs"]
 
-        resp = client.get("/api/admin/faq-analytics/summary")
+        client.post("/api/admin/faq-docs", json={"title": "새 FAQ", "content": "답변"})
+        after = client.get("/api/admin/faq-analytics/action-summary").json()["active_docs"]
+
+        assert after == before + 1
+
+    # ── unanswered-samples ──────────────────────────────────────────────────
+
+    def test_analytics_unanswered_samples_returns_200(self, client):
+        """GET /api/admin/faq-analytics/unanswered-samples → 200."""
+        resp = client.get("/api/admin/faq-analytics/unanswered-samples")
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["total_docs"] >= 2
-        assert data["active_docs"] >= 2
+
+    def test_analytics_unanswered_samples_is_list(self, client):
+        """unanswered-samples 응답은 리스트 형식이다."""
+        resp = client.get("/api/admin/faq-analytics/unanswered-samples")
+        assert resp.status_code == 200
+        assert isinstance(resp.json(), list)
+
+    # ── least-cited ─────────────────────────────────────────────────────────
+
+    def test_analytics_least_cited_returns_200(self, client):
+        """GET /api/admin/faq-analytics/least-cited → 200."""
+        resp = client.get("/api/admin/faq-analytics/least-cited")
+        assert resp.status_code == 200
+
+    def test_analytics_least_cited_is_list_with_citation_count(self, client):
+        """least-cited 응답은 citation_count 필드를 포함한 리스트다."""
+        resp = client.get("/api/admin/faq-analytics/least-cited")
+        assert resp.status_code == 200
+        items = resp.json()
+        assert isinstance(items, list)
+        for item in items:
+            assert "citation_count" in item
+
+    def test_analytics_least_cited_respects_limit(self, client):
+        """least-cited?limit=3 → 최대 3개 반환."""
+        for i in range(6):
+            client.post("/api/admin/faq-docs", json={
+                "title": f"저인용 FAQ {i}", "content": "내용",
+            })
+
+        resp = client.get("/api/admin/faq-analytics/least-cited?limit=3")
+        assert resp.status_code == 200
+        assert len(resp.json()) <= 3
+
+    def test_analytics_least_cited_sorted_asc(self, client):
+        """least-cited 결과는 citation_count 오름차순이다."""
+        resp = client.get("/api/admin/faq-analytics/least-cited")
+        assert resp.status_code == 200
+        items = resp.json()
+        if len(items) >= 2:
+            for i in range(len(items) - 1):
+                assert items[i]["citation_count"] <= items[i + 1]["citation_count"]
+
+    # ── top-cited ───────────────────────────────────────────────────────────
 
     def test_analytics_top_cited_returns_200(self, client):
-        """[RED→GREEN] GET /api/admin/faq-analytics/top-cited → 200 + 리스트."""
+        """GET /api/admin/faq-analytics/top-cited → 200 + 리스트."""
         resp = client.get("/api/admin/faq-analytics/top-cited")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
 
     def test_analytics_top_cited_respects_limit(self, client):
-        """[RED→GREEN] top-cited?limit=5 → 최대 5개 반환."""
+        """top-cited?limit=5 → 최대 5개 반환."""
         resp = client.get("/api/admin/faq-analytics/top-cited?limit=5")
         assert resp.status_code == 200
         assert len(resp.json()) <= 5
 
-    def test_analytics_coverage_gaps_returns_200(self, client):
-        """[RED→GREEN] GET /api/admin/faq-analytics/coverage-gaps → 200."""
-        resp = client.get("/api/admin/faq-analytics/coverage-gaps")
+    # ── trending-questions ──────────────────────────────────────────────────
+
+    def test_analytics_trending_questions_returns_200(self, client):
+        """GET /api/admin/faq-analytics/trending-questions → 200."""
+        resp = client.get("/api/admin/faq-analytics/trending-questions")
+        assert resp.status_code == 200
+
+    def test_analytics_trending_questions_schema(self, client):
+        """trending-questions 응답은 period_days, total_questions, items 필드를 포함한다."""
+        resp = client.get("/api/admin/faq-analytics/trending-questions")
         assert resp.status_code == 200
         data = resp.json()
-        assert "escalated_intents" in data
-        assert "category_coverage" in data
+        assert "period_days" in data
+        assert "total_questions" in data
+        assert "items" in data
+        assert isinstance(data["items"], list)
 
-    def test_analytics_coverage_gaps_has_correct_structure(self, client):
-        """[RED→GREEN] coverage-gaps 응답의 각 항목 구조 검증."""
-        resp = client.get("/api/admin/faq-analytics/coverage-gaps")
+    def test_analytics_trending_questions_respects_days_param(self, client):
+        """days 파라미터가 period_days 응답에 반영된다."""
+        resp = client.get("/api/admin/faq-analytics/trending-questions?days=30")
         assert resp.status_code == 200
-        data = resp.json()
-        # 카테고리 커버리지 목록 구조 확인
-        for item in data["category_coverage"]:
-            assert "slug" in item
-            assert "doc_count" in item
+        assert resp.json()["period_days"] == 30
 
-    def test_analytics_category_doc_count_after_create(self, client):
-        """[RED→GREEN] 카테고리 생성 + 문서 등록 후 해당 카테고리 doc_count 반영."""
-        # 카테고리 생성
-        cat_resp = client.post("/api/admin/faq-categories", json={
-            "name": "교환반품", "slug": "exchange-ret-test",
-        })
-        cat_id = cat_resp.json()["id"]
+    def test_analytics_trending_questions_item_schema(self, client, db_session):
+        """ChatLog 데이터가 있을 때 items 각 항목은 intent/intent_label/count/sample_question을 포함한다."""
+        from app.models.chat_log import ChatLog
+        from app.core.datetime_utils import now_kst
 
-        # 해당 카테고리 문서 등록
-        client.post("/api/admin/faq-docs", json={
-            "title": "교환 방법", "content": "...",
-            "faq_category_id": cat_id,
-        })
+        # 테스트용 ChatLog 삽입 (user_id/session_id 없이)
+        log = ChatLog(
+            intent="delivery",
+            question="배송 언제 오나요?",
+            answer="2~3일 소요됩니다.",
+            escalated=False,
+            created_at=now_kst(),
+        )
+        db_session.add(log)
+        db_session.commit()
 
-        resp = client.get("/api/admin/faq-analytics/summary")
+        resp = client.get("/api/admin/faq-analytics/trending-questions?days=7&limit=10")
         assert resp.status_code == 200
-        # 미분류 0개 (카테고리 있으므로)
-        data = resp.json()
-        assert isinstance(data["uncategorized_docs"], int)
+        items = resp.json()["items"]
 
-    def test_analytics_top_cited_sorted_by_citation_desc(self, client):
-        """[RED→GREEN] top-cited 결과는 인용 수 내림차순 정렬."""
-        resp = client.get("/api/admin/faq-analytics/top-cited")
-        assert resp.status_code == 200
-        items = resp.json()
-        if len(items) >= 2:
-            for i in range(len(items) - 1):
-                assert items[i]["citation_count"] >= items[i + 1]["citation_count"]
+        delivery_items = [i for i in items if i["intent"] == "delivery"]
+        assert len(delivery_items) >= 1
+        item = delivery_items[0]
+        for field in ("intent", "intent_label", "count", "sample_question"):
+            assert field in item, f"필드 누락: {field}"
+        assert item["count"] >= 1
+
+
+class TestChatbotCorsErrorRegression:
+    """Regression notes for chatbot-error-diagnosis.md.
+
+    Process:
+    - Browser symptom was reported as CORS blocked + POST /api/chatbot/ask 500.
+    - ALLOW_ORIGINS already included http://localhost:5174, so the CORS value itself
+      was not the primary failure.
+    - The risky path was diagnostic ASGI middleware and BaseException wrapping around
+      the chatbot route. Those can bypass normal FastAPI/Starlette exception handling
+      and make a real 500 appear in the browser as a CORS failure.
+
+    Result:
+    - Remove the diagnostic ASGI middleware from app.main.
+    - Do not catch BaseException in app.routers.chatbot; catch ordinary Exception only.
+    - Keep CORS outside the router so even handled 500 responses include CORS headers.
+    """
+
+    def test_chatbot_ask_500_keeps_cors_header_for_frontend_origin(self):
+        from app.core.config import settings
+        from app.database import get_db
+        from app.routers import chatbot as chatbot_router_module
+
+        class FailingChatbotService:
+            async def answer(self, *args, **kwargs):
+                raise RuntimeError("forced chatbot failure")
+
+        app = FastAPI()
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.allow_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        app.include_router(chatbot_router_module.router)
+
+        def override_get_db():
+            yield MagicMock()
+
+        app.dependency_overrides[get_db] = override_get_db
+
+        previous_service = chatbot_router_module._chatbot_service_instance
+        chatbot_router_module.set_chatbot_service(FailingChatbotService())
+        try:
+            with TestClient(app, raise_server_exceptions=False) as c:
+                resp = c.post(
+                    "/api/chatbot/ask",
+                    headers={"Origin": "http://localhost:5174"},
+                    json={"question": "배송비 얼마야?", "sessionId": None, "history": []},
+                )
+        finally:
+            chatbot_router_module._chatbot_service_instance = previous_service
+
+        assert resp.status_code == 500
+        assert resp.headers["access-control-allow-origin"] == "http://localhost:5174"
+
+    def test_chatbot_route_does_not_swallow_base_exception(self):
+        source = Path("app/routers/chatbot.py").read_text(encoding="utf-8")
+        assert "except BaseException" not in source
+
+    def test_main_app_has_no_diagnostic_asgi_middleware_outside_cors(self):
+        source = Path("app/main.py").read_text(encoding="utf-8")
+        assert "_DiagASGIMiddleware" not in source
+        assert "debug=True" not in source

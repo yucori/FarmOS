@@ -419,11 +419,6 @@ def migrate_policy(db, cat_map: dict[str, FaqCategory]) -> list[FaqDoc]:
 
 # ── ChromaDB 동기화 ───────────────────────────────────────────────────────────
 
-<<<<<<< HEAD
-def sync_to_chroma(docs: list[FaqDoc]) -> int:
-    """활성 문서를 ChromaDB faq 컬렉션에 일괄 upsert."""
-    synced = 0
-=======
 def sync_to_chroma(docs: list[FaqDoc]) -> tuple[int, int]:
     """활성 문서를 ChromaDB faq 컬렉션에 일괄 upsert.
 
@@ -432,7 +427,6 @@ def sync_to_chroma(docs: list[FaqDoc]) -> tuple[int, int]:
     """
     synced = 0
     failed = 0
->>>>>>> dev
     for doc in docs:
         if not doc.is_active:
             continue
@@ -440,14 +434,9 @@ def sync_to_chroma(docs: list[FaqDoc]) -> tuple[int, int]:
             FaqSync.upsert(doc)
             synced += 1
         except Exception as e:
-<<<<<<< HEAD
-            print(f"    [ChromaDB 오류] {doc.chroma_doc_id}: {e}")
-    return synced
-=======
             failed += 1
             print(f"    [ChromaDB 오류] {doc.chroma_doc_id}: {e}")
     return synced, failed
->>>>>>> dev
 
 
 # ── 진입점 ────────────────────────────────────────────────────────────────────
@@ -524,13 +513,8 @@ def main() -> None:
             .filter(FaqDoc.id.in_(doc_ids))
             .all()
         )
-<<<<<<< HEAD
-        synced = sync_to_chroma(fresh_docs)
-        print(f"  ChromaDB 동기화: {synced}/{len(fresh_docs)}건")
-=======
         synced, failed = sync_to_chroma(fresh_docs)
         print(f"  ChromaDB 동기화: {synced}/{len(fresh_docs)}건 (실패: {failed}건)")
->>>>>>> dev
 
     except Exception as e:
         db.rollback()
