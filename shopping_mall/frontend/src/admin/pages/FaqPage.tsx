@@ -517,9 +517,8 @@ function DocFormModal({ doc, defaultCategoryId, defaultTitle, defaultContent, de
   // 정책 인용이 있으면 content 말미에 자동 삽입
   function buildFinalContent(): string {
     const base = content.trim();
-    if (!citationPreview) return base;
-    // 이미 (근거: ...) 형식이 있으면 교체
     const withoutOld = base.replace(/\(근거:[^)]*\)/g, '').trimEnd();
+    if (!citationPreview) return withoutOld;
     return `${withoutOld}\n${citationPreview}`;
   }
 
@@ -532,7 +531,7 @@ function DocFormModal({ doc, defaultCategoryId, defaultTitle, defaultContent, de
 
     if (isEdit) {
       const payload: FaqDocUpdate = {
-        faq_category_id: categoryId ?? 0,
+        faq_category_id: categoryId ?? null,
         title: title.trim(),
         content: finalContent,
         extra_metadata: extra,

@@ -238,8 +238,9 @@ def main(verbose: bool = False) -> None:
         })
 
     # ── 요약 ──────────────────────────────────────────────────────────────────
+    pass_rate = (passed_checks / total_checks * 100) if total_checks else 0.0
     print("\n" + "=" * 68)
-    print(f"검증 결과: {passed_checks}/{total_checks} 통과  ({passed_checks/total_checks*100:.1f}%)")
+    print(f"검증 결과: {passed_checks}/{total_checks} 통과  ({pass_rate:.1f}%)")
     print("=" * 68)
 
     failed = [
@@ -263,7 +264,7 @@ def main(verbose: bool = False) -> None:
             {
                 "total_checks":  total_checks,
                 "passed_checks": passed_checks,
-                "pass_rate":     round(passed_checks / total_checks * 100, 1) if total_checks else 0,
+                "pass_rate":     round(pass_rate, 1),
                 "cases":         case_results,
             },
             f,
@@ -271,6 +272,10 @@ def main(verbose: bool = False) -> None:
             indent=2,
         )
     print(f"\n결과 저장: {out_path}")
+
+    if total_checks == 0:
+        print("검증 가능한 응답이 없어 실패로 처리합니다.")
+        sys.exit(1)
 
     sys.exit(0 if passed_checks == total_checks else 1)
 

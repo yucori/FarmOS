@@ -17,7 +17,7 @@ LangChain tool calling 기반으로 FAQ 제목·답변 초안을 생성합니다
 
 ## 에이전트 흐름
 
-```
+```text
 POST /api/admin/faq-analytics/generate-draft
   → generate_faq_draft_endpoint()
   → FaqWriterAgent.generate(db, representative_question, ...)
@@ -46,7 +46,7 @@ search_faq_context(query="배송 기간", top_k=3)
 
 6개 정책 컬렉션에서 관련 청크를 검색하고 **인용 출처 JSON**을 함께 반환합니다.
 
-```
+```text
 [인용출처]: {"doc": "반품교환환불정책", "chapter": "제1장 반품·교환·환불", "article": "제5조(반품 조건 및 배송비 부담)", "clause": "제1항"}
 [내용]:
 ...정책 본문 앞 300자...
@@ -115,7 +115,7 @@ content 말미의 `(근거: ...)` 삽입은 프론트엔드 `buildFinalContent()
 
 ## API 엔드포인트
 
-```
+```http
 POST /api/admin/faq-analytics/generate-draft
 Content-Type: application/json
 
@@ -141,7 +141,7 @@ Content-Type: application/json
 
 FAQ 등록 모달의 장·조·항 드롭다운 데이터 공급:
 
-```
+```http
 GET /api/admin/faq-analytics/policy-articles?doc=반품교환환불정책
 → [
     {"chapter": "제1장 반품·교환·환불", "article": "제5조(반품 조건 및 배송비 부담)", "clauses": ["제1항", "제2항", "제3항"]},

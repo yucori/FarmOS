@@ -51,7 +51,9 @@ POST /api/chatbot/ask
       │                     RAG 조회 / DB 읽기 / escalate / refuse
       └── call_order_agent → OrderGraph (LangGraph StateGraph)
                               interrupt/resume 기반 멀티스텝 HitL
-                              주문 선택 → 사유/변경항목 → 환불방법 → 확인 → ShopTicket
+                              취소: 주문 선택 → 사유 → get_refund_method → 확인 → ShopTicket
+                              교환: 주문 선택 → 품목 선택 → 재고 확인 → 사유 → 확인 → ShopTicket
+                              변경: 주문 선택 → get_change_type → get_change_detail → 확인 → ShopTicket
   → ChatLog + ToolMetric 저장
 ```
 
@@ -179,7 +181,7 @@ LLM을 거치지 않고 즉시 반환되는 고정 문자열을 한 파일에서
 
 모든 에이전트 응답에 적용되는 톤앤매너를 계층 구조로 관리합니다.
 
-```
+```text
 BASE_TONE_POLICY          — 호칭("고객님") · 어투(반격식체 ~해요) · 이모지 금지
 ├── CHATBOT_TONE_POLICY   — BASE + 공감 표현 · 대화 흐름 · 자연스러운 마무리
 └── FAQ_TONE_POLICY       — BASE + 자기완결성 · 명확성 우선 · 일반화된 표현

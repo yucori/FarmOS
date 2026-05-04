@@ -20,11 +20,7 @@
 
 ## 프로젝트 구조
 
-<<<<<<< HEAD
-```
-=======
 ```text
->>>>>>> dev
 FarmOS/
 ├── frontend/                  React 19 + TypeScript + Vite   포트 5173
 │   └── src/
@@ -121,11 +117,7 @@ FarmOS/
 
 고객 문의를 자동 처리하는 멀티에이전트 시스템입니다. LangGraph 기반 그래프로 복합 질문, 멀티스텝 추론, Human-in-the-Loop 교환 신청을 지원합니다.
 
-<<<<<<< HEAD
-```
-=======
 ```text
->>>>>>> dev
 고객 질문
     │
 POST /api/chatbot/ask
@@ -160,11 +152,7 @@ fallback = build_fallback_llm()  # Claude Haiku  — .env의 FALLBACK_MODEL
 
 BM25(키워드) + Dense(의미론) 하이브리드 검색 후 RRF로 통합 랭킹:
 
-<<<<<<< HEAD
-```
-=======
 ```text
->>>>>>> dev
 질문
   │
 normalize_query()   — 조사 제거, 소문자화
@@ -195,11 +183,7 @@ normalize_query()   — 조사 제거, 소문자화
 
 ### 구조
 
-<<<<<<< HEAD
-```
-=======
 ```text
->>>>>>> dev
 FaqCategory (어드민 관리)
     id, name, slug, color, icon, sort_order, is_active
     └── KnowledgeDoc (FAQ 문서)
@@ -211,11 +195,7 @@ FaqCategory (어드민 관리)
 
 ### 데이터 흐름
 
-<<<<<<< HEAD
-```
-=======
 ```text
->>>>>>> dev
 [관리자] KnowledgePage 어드민에서 FAQ 등록/수정
     │
 PostgreSQL 저장 + ChromaDB 백그라운드 동기화 (KnowledgeSync)
@@ -243,11 +223,7 @@ PostgreSQL 저장 + ChromaDB 백그라운드 동기화 (KnowledgeSync)
 
 ### API 엔드포인트
 
-<<<<<<< HEAD
-```
-=======
 ```text
->>>>>>> dev
 # FAQ 카테고리
 GET    /api/admin/faq-categories          목록 (include_inactive 옵션)
 POST   /api/admin/faq-categories          카테고리 생성

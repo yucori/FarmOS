@@ -247,7 +247,7 @@ interface ChatMessageViewProps {
 export default function ChatMessageView({ sessionId, userId, onBackClick }: ChatMessageViewProps) {
   const { data: sessionMessages = [] } = useSessionMessages(sessionId, userId);
   const { data: session } = useGetSession(sessionId, userId);
-  const { mutate: send, isPending } = useSendMessage();
+  const { mutate: send, isPending, isSuccess: sendSuccess } = useSendMessage();
   const { mutate: closeSession, isPending: isClosing } = useCloseSession();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatSessionMessage[]>([WELCOME]);
@@ -276,12 +276,13 @@ export default function ChatMessageView({ sessionId, userId, onBackClick }: Chat
   }, [sessionId]);
 
   // 캐시에 새 메시지가 생겼을 때만 반영 — 롤백(캐시 길이 감소)은 무시해서
-  // onError 롤백이 로컬 낙관적 메시지(사용자 질문 + 에러 알림)를 덮어쓰지 않도록 함
+  // onError 롤백이 로컬 낙관적 메시지(사용자 질문 + 에러 알림)를 덮어쓰지 않도록 함.
+  // sendSuccess가 true면 이전 onError로 로컬 messages가 길어진 경우에도 서버 응답을 반영.
   useEffect(() => {
-    if (sessionMessages.length >= messages.length) {
+    if (sessionMessages.length >= messages.length || sendSuccess) {
       setMessages(sessionMessages.length === 0 ? [WELCOME] : sessionMessages);
     }
-  }, [sessionMessages]); // messages는 의도적으로 제외 (업데이트 루프 방지)
+  }, [sessionMessages, sendSuccess]); // messages는 의도적으로 제외 (업데이트 루프 방지)
 
   useEffect(() => {
     if (messagesContainerRef.current) {

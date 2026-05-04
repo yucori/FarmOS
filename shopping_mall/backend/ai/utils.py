@@ -149,7 +149,7 @@ def _tokenize_ko_kiwi(text: str, kiwi) -> list[str]:
         for token in kiwi.tokenize(text):
             if token.tag not in _KIWI_KEEP_TAGS:
                 continue
-            form = token.form
+            form = token.form.lower()
             if form in _KO_STOPWORDS or len(form) < _MIN_TOKEN_LEN:
                 continue
             if form not in seen:
@@ -157,6 +157,7 @@ def _tokenize_ko_kiwi(text: str, kiwi) -> list[str]:
                 seen.add(form)
         # 영문/숫자 토큰은 Kiwi가 SL/SW로 처리하지만 누락 가능 → 보완
         for tok in re.findall(r"[a-zA-Z0-9_]+", text):
+            tok = tok.lower()
             if len(tok) >= 2 and tok not in seen:
                 result.append(tok)
                 seen.add(tok)

@@ -99,7 +99,6 @@ SHOP_TABLES = [
     "shop_chat_logs",
     "shop_chat_sessions",
     "shop_faq_categories",
-    "shop_faq_docs",
 ]
 # shop_reviews는 1000건이 정상 상태(shoppingmall_review_seed.py 적재 후)
 READY_ROW_COUNTS = {

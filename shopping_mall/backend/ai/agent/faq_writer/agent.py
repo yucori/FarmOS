@@ -128,7 +128,23 @@ class FaqWriterAgent:
 
             # 도구 호출 없음 → 최종 응답
             if not response.tool_calls:
-                raw = response.content.strip() if isinstance(response.content, str) else ""
+                content = response.content
+                if isinstance(content, str):
+                    raw = content
+                elif isinstance(content, list):
+                    parts: list[str] = []
+                    for item in content:
+                        if item is None:
+                            continue
+                        elif isinstance(item, str):
+                            parts.append(item)
+                        elif isinstance(item, dict):
+                            parts.append(item.get("text") or json.dumps(item, ensure_ascii=False))
+                        else:
+                            parts.append(str(item))
+                    raw = "".join(parts)
+                else:
+                    raw = ""
                 logger.info("[faq_writer] 에이전트 완료 (iter=%d)", iteration + 1)
                 return _parse_result(raw, self.primary)
 

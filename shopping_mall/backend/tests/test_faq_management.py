@@ -30,9 +30,15 @@ from sqlalchemy.pool import StaticPool
 SQLALCHEMY_TEST_URL = "sqlite:///:memory:"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def test_engine():
-    """모듈 스코프 SQLite 엔진 — StaticPool으로 단일 연결 공유."""
+    """함수 스코프 SQLite 엔진 — 각 테스트마다 새 인메모리 DB를 생성해 격리.
+
+    모듈 스코프 엔진에 rollback 기반 격리를 사용하면 TestClient 내부의
+    session.commit()이 이미 커밋된 행을 남겨 다음 테스트로 유출된다.
+    함수 스코프로 전환하면 create_all / drop_all 이 매 테스트마다 실행되므로
+    커밋 여부와 무관하게 완전한 격리가 보장된다.
+    """
     # 필요 모델을 먼저 임포트해야 Base.metadata에 등록됨
     from app.database import Base
     import app.models  # noqa: F401
@@ -45,11 +51,12 @@ def test_engine():
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
+    engine.dispose()
 
 
 @pytest.fixture
 def db_session(test_engine):
-    """각 테스트마다 독립 세션 (rollback으로 격리)."""
+    """각 테스트마다 독립 세션 — 테스트 엔진이 함수 스코프이므로 격리 보장."""
     TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
     session = TestingSession()
     yield session
@@ -478,10 +485,12 @@ class TestChatbotCorsErrorRegression:
         assert resp.headers["access-control-allow-origin"] == "http://localhost:5174"
 
     def test_chatbot_route_does_not_swallow_base_exception(self):
-        source = Path("app/routers/chatbot.py").read_text(encoding="utf-8")
+        import app.routers.chatbot as chatbot_module
+        source = Path(chatbot_module.__file__).read_text(encoding="utf-8")
         assert "except BaseException" not in source
 
     def test_main_app_has_no_diagnostic_asgi_middleware_outside_cors(self):
-        source = Path("app/main.py").read_text(encoding="utf-8")
+        import app.main as main_module
+        source = Path(main_module.__file__).read_text(encoding="utf-8")
         assert "_DiagASGIMiddleware" not in source
         assert "debug=True" not in source

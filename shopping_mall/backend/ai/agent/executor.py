@@ -338,6 +338,14 @@ def _format_order_status_answer(tool_result: str) -> str:
     return "\n".join(lines)
 
 
+def _reject_cross_user_order_lookup(tc: dict) -> tuple[str, int] | None:
+    """get_order_status에 user_id 인자가 들어오면 즉시 거절한다."""
+    if tc["name"] == "get_order_status" and "user_id" in tc.get("args", {}):
+        logger.warning("get_order_status에 user_id 인자 감지 — 타인 정보 조회 시도 거절")
+        return "__REFUSED__\n사유: other_user_info", 0
+    return None
+
+
 # ── CS 에이전트 실행기 ────────────────────────────────────────────────────────
 
 class AgentExecutor:
@@ -421,7 +429,11 @@ class AgentExecutor:
         """Supervisor가 지정한 read-only 도구를 바로 실행해 도구 선택 LLM 호출을 생략."""
         safe_args = tool_args if isinstance(tool_args, dict) else {}
         tc = {"name": tool_hint, "args": safe_args, "id": f"hint-{tool_hint}"}
-        result, latency_ms = await _invoke_tool(tc, tool_map)
+        guarded = _reject_cross_user_order_lookup(tc)
+        if guarded is not None:
+            result, latency_ms = guarded
+        else:
+            result, latency_ms = await _invoke_tool(tc, tool_map)
 
         tools_used: list[str] = []
         trace: list[TraceStep] = []
@@ -562,10 +574,9 @@ class AgentExecutor:
 
         # DB·액션 순차 실행
         for i, tc in other_indexed:
-            # get_order_status에 user_id 인자 감지 → 타인 정보 조회 시도로 즉시 거절
-            if tc["name"] == "get_order_status" and "user_id" in tc.get("args", {}):
-                logger.warning("get_order_status에 user_id 인자 감지 — 타인 정보 조회 시도 거절")
-                result, latency_ms = "__REFUSED__\n사유: other_user_info", 0
+            guarded = _reject_cross_user_order_lookup(tc)
+            if guarded is not None:
+                result, latency_ms = guarded
             else:
                 result, latency_ms = await _invoke_tool(tc, tool_map)
 

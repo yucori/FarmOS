@@ -18,7 +18,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 
 
 def _setup_app_logging() -> None:
@@ -72,16 +72,14 @@ Base.metadata.create_all(bind=engine)
 
 def _ensure_schema_patches() -> None:
     """Apply small idempotent schema patches for projects without Alembic."""
-    inspector = inspect(engine)
-    ticket_columns = {col["name"] for col in inspector.get_columns("shop_tickets")}
-    if "flags" in ticket_columns:
-        return
-
     with engine.begin() as conn:
         conn.execute(
-            text("ALTER TABLE shop_tickets ADD COLUMN flags TEXT NOT NULL DEFAULT '[]'")
+            text(
+                "ALTER TABLE shop_tickets "
+                "ADD COLUMN IF NOT EXISTS flags TEXT NOT NULL DEFAULT '[]'"
+            )
         )
-    logger.info("shop_tickets.flags column added.")
+    logger.info("shop_tickets.flags schema patch ensured.")
 
 
 _ensure_schema_patches()

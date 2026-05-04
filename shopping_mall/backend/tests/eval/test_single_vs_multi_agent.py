@@ -16,7 +16,9 @@
   uv run python tests/eval/test_single_vs_multi_agent.py
 """
 import json
+import logging
 import os
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -25,8 +27,12 @@ import requests
 
 # ── 환경 변수 ──────────────────────────────────────────────────────────────────
 LITELLM_URL   = os.getenv("LITELLM_URL",   "https://litellm.lilpa.moe/v1")
-LITELLM_KEY   = os.getenv("LITELLM_API_KEY", "sk-dlndoxccv94X-U62kaeuBQ")
+LITELLM_KEY   = os.getenv("LITELLM_API_KEY", "")
 LITELLM_MODEL = os.getenv("LITELLM_MODEL", "gpt-5-nano")
+
+if not LITELLM_KEY:
+    logging.error("LITELLM_API_KEY is not set. Export it before running this eval script.")
+    sys.exit(1)
 
 # ── 로그인 컨텍스트 suffix (두 에이전트 공통) ──────────────────────────────────
 def _ctx_suffix() -> str:

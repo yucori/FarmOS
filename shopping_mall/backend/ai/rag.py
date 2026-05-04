@@ -461,6 +461,13 @@ class RAGService:
             dense_weight: Dense 랭킹 가중치 (기본값 2.0 — BM25보다 Dense 우선)
             bm25_weight: BM25 랭킹 가중치 (기본값 1.0)
         """
+        if not isinstance(dense_weight, (int, float)) or dense_weight < 0:
+            raise ValueError(f"dense_weight must be a non-negative number, got {dense_weight!r}")
+        if not isinstance(bm25_weight, (int, float)) or bm25_weight < 0:
+            raise ValueError(f"bm25_weight must be a non-negative number, got {bm25_weight!r}")
+        if not isinstance(rrf_k, (int, float)) or rrf_k <= 0:
+            raise ValueError(f"rrf_k must be a positive number, got {rrf_k!r}")
+
         col_set = set(collections)
 
         # ── Dense 검색 ────────────────────────────────────────────────────────

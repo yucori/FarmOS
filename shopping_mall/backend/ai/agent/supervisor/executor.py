@@ -90,7 +90,6 @@ _CS_HANDOFF_SELECTIONS: frozenset[str] = frozenset({
 
 _SUPERVISOR_TOOL_TO_INTENT: dict[str, str] = {"call_cs_agent": "other"}
 
-_STOCK_KEYWORDS: frozenset[str] = frozenset({"재고", "품절", "입고", "남아", "남았", "있나요", "있어요"})
 _VAGUE_STOCK_MESSAGES: frozenset[str] = frozenset({
     "재고 확인",
     "재고 확인해줘",
@@ -104,14 +103,6 @@ _VAGUE_STOCK_MESSAGES: frozenset[str] = frozenset({
 _VAGUE_STOCK_COMPACT_MESSAGES: frozenset[str] = frozenset(
     re.sub(r"\s+", "", msg) for msg in _VAGUE_STOCK_MESSAGES
 )
-_PRODUCT_HINT_KEYWORDS: frozenset[str] = frozenset({
-    "딸기",
-    "사과", "배", "감귤", "한라봉", "오렌지", "천혜향", "레드향",
-    "상추", "깻잎", "시금치", "배추", "청경채", "감자", "고구마",
-    "당근", "양파", "무", "한우", "돼지", "연어", "광어", "고등어",
-    "참치", "갈치", "굴", "킹크랩", "새우", "전복", "오징어",
-    "블루베리", "토마토", "브로콜리", "과일", "채소", "축산", "수산",
-})
 
 _OTHER_USER_INFO_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?:다른|타인|남의|타고객|타\s*고객|제\s*3자).{0,20}(?:주문|배송|송장|주소|연락처|전화번호|휴대폰|이메일|개인정보|정보|구매\s*내역)"),
@@ -123,7 +114,8 @@ _OTHER_USER_INFO_PATTERNS: tuple[re.Pattern[str], ...] = (
 _INTERNAL_INFO_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?:오늘|당일|금일|어제|일간|주간|월간|이번\s*달|지난\s*달|전체|총)?\s*(?:매출|매상|영업\s*이익|순이익|수익|마진|정산|결제\s*금액)"),
     re.compile(r"(?:매출|매상|수익|정산).*(?:알려|조회|보여|확인|얼마|뭐|몇)"),
-    re.compile(r"(?:주문|회원|고객).*(?:전체|목록|리스트|명단|데이터|db|엑셀|다운로드)"),
+    re.compile(r"(?:전체|모든|전\s*고객|고객|회원|관리자|운영자|운영팀).{0,20}(?:주문|회원|고객).{0,20}(?:목록|리스트|명단|데이터|db|엑셀|다운로드)"),
+    re.compile(r"(?:주문|회원|고객).{0,20}(?:전체|전부|모두|고객별|회원별|데이터|db|엑셀|다운로드)"),
     re.compile(r"(?:관리자|어드민|운영자|운영팀).*(?:대시보드|통계|로그|티켓|인사이트|데이터)"),
     re.compile(r"(?:챗봇|상담).*(?:로그|대화\s*내역).*(?:전체|보여|조회|다운로드)"),
     re.compile(r"(?:db|데이터베이스|sql|쿼리|시스템\s*프롬프트|api\s*key|apikey|토큰|비밀번호|패스워드)"),
@@ -266,7 +258,7 @@ class SupervisorExecutor:
         context: RequestContext | None = None,
     ) -> AgentResult:
         # ── [DIAG] 진단용 로그 — 확인 후 제거 예정 ──────────────────────────
-        logger.info("[DIAG] SupervisorExecutor.run 진입 — user_id=%s session_id=%s msg=%.60r", user_id, session_id, user_message)
+        logger.info("[DIAG] SupervisorExecutor.run 진입 — user_id=%s session_id=%s", user_id, session_id)
         # ────────────────────────────────────────────────────────────────────
         ctx = context or RequestContext.build(user_id)
         suffix = ctx.to_system_suffix()
@@ -276,7 +268,7 @@ class SupervisorExecutor:
         # 0순위: 내부 운영 정보·민감 정보 요청은 LLM/도구 호출 전에 구조적으로 차단한다.
         refusal_reason = _preflight_refusal_reason(user_message)
         if refusal_reason:
-            logger.info("[supervisor] preflight refusal — reason=%s msg=%.60r", refusal_reason, user_message)
+            logger.info("[supervisor] preflight refusal — user_id=%s session_id=%s intent=other reason=%s", ctx.user_id, session_id, refusal_reason)
             return AgentResult(
                 answer=refusal_response(refusal_reason),
                 intent="other",
@@ -772,12 +764,7 @@ def _fast_route(message: str) -> str:
 def _is_vague_stock_request(message: str) -> bool:
     normalized = re.sub(r"\s+", " ", message.strip().lower())
     compact = re.sub(r"\s+", "", normalized)
-    if normalized in _VAGUE_STOCK_MESSAGES or compact in _VAGUE_STOCK_COMPACT_MESSAGES:
-        return True
-
-    if not any(keyword in normalized for keyword in _STOCK_KEYWORDS):
-        return False
-    return not any(keyword in normalized for keyword in _PRODUCT_HINT_KEYWORDS)
+    return normalized in _VAGUE_STOCK_MESSAGES or compact in _VAGUE_STOCK_COMPACT_MESSAGES
 
 
 def _resolve_handoff_action(user_message: str) -> str:

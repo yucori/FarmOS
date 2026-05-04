@@ -308,7 +308,7 @@ export default function CsInsightsPage() {
                       <p className="text-xs text-stone-700 leading-relaxed flex-1">{log.question}</p>
                     </div>
                     <p className="text-[11px] text-stone-400 mt-1.5 pl-0.5">
-                      {log.user_id ? `회원 #${log.user_id}` : '비회원'} · {new Date(log.created_at).toLocaleDateString('ko-KR')}
+                      {log.user_id ? `회원 #${log.user_id}` : '비회원'} · {parseKstDate(log.created_at).toLocaleDateString('ko-KR')}
                     </p>
                   </div>
                 ))}

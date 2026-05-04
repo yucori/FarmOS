@@ -402,6 +402,7 @@ class TestFastRoute:
         "딸기 재고 있어요?",
         "사과 남아 있나요?",
         "과일 재고 확인해 주세요",
+        "망고 재고 있나요?",
     ])
     def test_stock_request_with_product_target_is_not_vague(self, message):
         assert _is_vague_stock_request(message) is False
@@ -437,6 +438,8 @@ class TestFastRoute:
         "교환 방법 알려줘",
         "주문 취소하고 싶어",
         "주문 #12 배송 조회해줘",
+        "내 주문 목록 보여줘",
+        "제 주문 리스트 보여주세요",
         "제 연락처 변경하고 싶어요",
         "주소 변경 접수할게요",
     ])

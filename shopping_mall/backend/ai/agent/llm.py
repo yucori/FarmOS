@@ -46,12 +46,13 @@ def build_primary_llm() -> ChatOpenAI:
     빈 문자열이면 파라미터를 전달하지 않아 모델 기본값을 사용합니다.
     """
     kwargs: dict = {}
-    if settings.llm_reasoning_effort and _supports_reasoning_effort(settings.litellm_model):
-        kwargs["reasoning_effort"] = settings.llm_reasoning_effort
-    elif settings.llm_reasoning_effort:
+    normalized_effort = settings.llm_reasoning_effort.strip().lower()
+    if normalized_effort and _supports_reasoning_effort(settings.litellm_model):
+        kwargs["reasoning_effort"] = normalized_effort
+    elif normalized_effort:
         logger.warning(
             "LLM_REASONING_EFFORT=%s ignored for non-reasoning model %s",
-            settings.llm_reasoning_effort,
+            normalized_effort,
             settings.litellm_model,
         )
 

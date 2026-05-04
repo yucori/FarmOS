@@ -189,7 +189,7 @@ def analyze(
         try:
             key = normalize_query(log.question)
         except Exception:
-            logger.warning("[faq_gap_analyzer] normalize 실패, 원문 사용: %r", log.question[:60])
+            logger.warning("[faq_gap_analyzer] normalize 실패, 원문 사용 (chat_log_id=%s)", log.id)
             key = log.question.strip()
 
         if key not in clusters:

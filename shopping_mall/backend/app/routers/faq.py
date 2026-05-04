@@ -1030,7 +1030,7 @@ def get_policy_articles(
         except Exception:
             continue
         try:
-            result = col.get(include=["metadatas", "documents"])
+            result = col.get(where={"doc_title": doc}, include=["metadatas", "documents"])
         except Exception as e:
             logger.warning("[policy_articles] 컬렉션 %s 조회 실패: %s", col_name, e)
             continue
@@ -1120,6 +1120,7 @@ def generate_faq_draft_endpoint(
                 fallback=build_fallback_llm(),
                 rag_service=RAGService(),
             )
+            set_faq_writer(writer)
         except Exception as e:
             logger.error("[faq_draft] FaqWriterAgent 초기화 실패: %s", e)
             raise HTTPException(status_code=503, detail="FAQ 작성 에이전트를 초기화할 수 없습니다.")
