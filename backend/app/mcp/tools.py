@@ -19,6 +19,7 @@ from typing import Any
 from fastmcp import Context, FastMCP
 from fastmcp.exceptions import ToolError
 
+import base64
 import json
 
 from sqlalchemy import desc, select
@@ -27,9 +28,10 @@ from app.core import review_singletons as _singletons
 from app.core.database import async_session
 from app.core.review_helpers import get_seller_product_ids, stratified_sample
 from app.mcp.auth import get_current_user_from_ctx
-from app.mcp.schemas import AnalysisDetail
+from app.mcp.schemas import AnalysisDetail, PdfReport
 from app.models.review_analysis import ReviewAnalysis
 from app.schemas.review_analysis import (
+    AnalysisSettings,
     AnalyzeResponse,
     AnomalyAlert,
     EmbedResponse,
@@ -57,7 +59,7 @@ def register_all_tools(mcp: FastMCP) -> None:
     _register_ping(mcp)
     _register_embed_and_search(mcp)        # module-2
     _register_analysis_tools(mcp)          # module-3
-    # _register_report_and_settings(mcp)     # module-4
+    _register_report_and_settings(mcp)     # module-4
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +463,141 @@ def _register_analysis_tools(mcp: FastMCP) -> None:
             trends=[TrendData(**t) for t in (record.trends or []) if isinstance(t, dict)],
             anomalies=[AnomalyAlert(**a) for a in (record.anomalies or []) if isinstance(a, dict)],
         )
+
+
+# ---------------------------------------------------------------------------
+# module-4: T8 generate_pdf_report, T9 get_analysis_settings, T10 update_analysis_settings
+# ---------------------------------------------------------------------------
+# Design Ref: §3.0 (tool 카탈로그), §3.2 (PDF base64 inline)
+# Plan SC: SC-01 (10 tools), SC-02 (FastAPI 응답 일치 — PDF/settings 동등)
+
+
+def _record_to_pdf_data(record: ReviewAnalysis) -> dict[str, Any]:
+    """ReviewAnalysis ORM → review_report.generate_pdf 가 기대하는 dict 형태.
+
+    FastAPI 라우터 download_report 의 analysis_data 매핑과 1:1 동일.
+    """
+    summary_dict = _serialize_summary(record)
+    return {
+        "sentiment_summary": record.sentiment_summary or {},
+        "keywords": record.keywords or [],
+        "summary": summary_dict,
+        "anomalies": record.anomalies or [],
+        "processing_time_ms": record.processing_time_ms or 0,
+        "llm_provider": record.llm_provider or "",
+        "llm_model": record.llm_model or "",
+    }
+
+
+def _register_report_and_settings(mcp: FastMCP) -> None:
+    """T8 generate_pdf_report + T9 get_analysis_settings + T10 update_analysis_settings 등록."""
+
+    @mcp.tool
+    async def generate_pdf_report(
+        ctx: Context,
+        analysis_id: int | None = None,
+    ) -> PdfReport:
+        """분석 결과를 PDF 리포트로 생성한다 (T8 — base64 inline).
+
+        FastAPI GET /reviews/report/pdf?analysis_id=... 와 동일 동작.
+        analysis_id 가 None 이면 최신 분석을 사용한다.
+        PDF 바이너리는 base64 로 인코딩해 JSON 응답에 inline 전달 (5MB 이하 가정).
+
+        Args:
+            analysis_id: 특정 분석 ID. None 이면 최신.
+        """
+        async with async_session() as db:
+            await get_current_user_from_ctx(db)
+
+            if analysis_id is not None:
+                if analysis_id <= 0:
+                    raise ToolError("analysis_id must be positive")
+                stmt = select(ReviewAnalysis).where(ReviewAnalysis.id == analysis_id)
+            else:
+                stmt = select(ReviewAnalysis).order_by(desc(ReviewAnalysis.created_at)).limit(1)
+
+            result = await db.execute(stmt)
+            record = result.scalar_one_or_none()
+
+            if record is None:
+                raise ToolError("분석 결과가 없습니다. 먼저 analyze_reviews 를 실행하세요.")
+
+            analysis_data = _record_to_pdf_data(record)
+
+        # generate_pdf 는 동기 메서드 — BytesIO 반환
+        pdf_io = _singletons.report_generator.generate_pdf(analysis_data)
+        pdf_bytes = pdf_io.getvalue()
+        size_bytes = len(pdf_bytes)
+
+        # 5MB 가드 — Design §12 리스크 (base64 페이로드 과대)
+        if size_bytes > 5 * 1024 * 1024:
+            raise ToolError(
+                f"PDF too large for inline base64 transport: {size_bytes} bytes (limit 5MB). "
+                f"Consider using GET /api/v1/reviews/report/pdf?analysis_id={record.id} instead."
+            )
+
+        logger.info(
+            "mcp.generate_pdf_report ok analysis_id=%d size=%d",
+            record.id, size_bytes,
+        )
+        return PdfReport(
+            filename="review-analysis-report.pdf",
+            content_base64=base64.b64encode(pdf_bytes).decode("ascii"),
+            size_bytes=size_bytes,
+        )
+
+    @mcp.tool
+    async def get_analysis_settings(ctx: Context) -> AnalysisSettings:
+        """자동 분석 설정을 조회한다 (T9 — FastAPI GET /reviews/settings 동등)."""
+        async with async_session() as db:
+            await get_current_user_from_ctx(db)
+        return _singletons.settings_state
+
+    @mcp.tool
+    async def update_analysis_settings(
+        ctx: Context,
+        auto_batch_enabled: bool | None = None,
+        batch_trigger_count: int | None = None,
+        batch_schedule: str | None = None,
+        default_batch_size: int | None = None,
+    ) -> AnalysisSettings:
+        """자동 분석 설정을 변경한다 (T10 — FastAPI PUT /reviews/settings 동등).
+
+        모든 인자는 옵션 — None 이면 해당 필드 미변경 (PATCH 의미).
+        싱글턴 모듈 속성으로 재할당해 라우터/MCP 양쪽에 즉시 반영.
+
+        Args:
+            auto_batch_enabled: 자동 배치 분석 활성 여부.
+            batch_trigger_count: 새 리뷰 누적 임계값 (1~100).
+            batch_schedule: cron-like 스케줄 문자열 (또는 None).
+            default_batch_size: 기본 배치 크기 (5~50).
+        """
+        # 검증 — FastAPI Pydantic Field 와 동등 가드
+        if batch_trigger_count is not None and not 1 <= batch_trigger_count <= 100:
+            raise ToolError("batch_trigger_count must be between 1 and 100")
+        if default_batch_size is not None and not 5 <= default_batch_size <= 50:
+            raise ToolError("default_batch_size must be between 5 and 50")
+
+        async with async_session() as db:
+            await get_current_user_from_ctx(db)
+
+        # exclude_none semantics — None 인자는 미변경
+        updates: dict[str, Any] = {}
+        if auto_batch_enabled is not None:
+            updates["auto_batch_enabled"] = auto_batch_enabled
+        if batch_trigger_count is not None:
+            updates["batch_trigger_count"] = batch_trigger_count
+        if batch_schedule is not None:
+            updates["batch_schedule"] = batch_schedule
+        if default_batch_size is not None:
+            updates["default_batch_size"] = default_batch_size
+
+        current = _singletons.settings_state.model_dump()
+        current.update(updates)
+        _singletons.settings_state = AnalysisSettings(**current)
+
+        logger.info("mcp.update_analysis_settings ok updates=%s", list(updates.keys()))
+        return _singletons.settings_state
 
 
 __all__ = ["register_all_tools"]
